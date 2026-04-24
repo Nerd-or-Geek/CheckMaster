@@ -22,14 +22,14 @@ const GRANTS: { value: ShareGrant; label: string; desc: string }[] = [
 ];
 
 export default function ShareChecklistModal({ visible, onClose, checklist }: ShareChecklistModalProps) {
-  const { settings } = useApp();
-  const theme = settings.darkMode ? colors.dark : colors.light;
+  const { isDark } = useApp();
+  const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
   const [grant, setGrant] = useState<ShareGrant>('view');
 
   const handleShare = async () => {
     const encoded = encodeChecklistShare(grant, checklist);
-    const human = `CheckMaster: "${checklist.name}"\n\nHow to open: In Folders, open the folder where you want it, tap Import shared, and paste this entire message.\n\nPermission for the copy: ${GRANTS.find(g => g.value === grant)?.label ?? grant}`;
+    const human = `Gledhill Lists: "${checklist.name}"\n\nHow to open: In Folders, open the folder where you want it, tap Import shared, and paste this entire message.\n\nPermission for the copy: ${GRANTS.find(g => g.value === grant)?.label ?? grant}`;
     try {
       await Share.share({
         title: `Share: ${checklist.name}`,
@@ -45,7 +45,7 @@ export default function ShareChecklistModal({ visible, onClose, checklist }: Sha
       <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
         <View style={[styles.sheet, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: theme.textPrimary }]}>Share checklist</Text>
+            <Text style={[styles.title, { color: theme.textPrimary }]}>Share Checklist</Text>
             <Pressable onPress={onClose} hitSlop={12}>
               <MaterialIcons name="close" size={24} color={theme.textSecondary} />
             </Pressable>
@@ -84,7 +84,7 @@ export default function ShareChecklistModal({ visible, onClose, checklist }: Sha
             >
               <MaterialIcons name="share" size={20} color="#FFF" />
               <Text style={styles.shareBtnText}>
-                {Platform.OS === 'web' ? 'Copy / share' : 'Share via…'}
+                {Platform.OS === 'web' ? 'Copy / share' : 'Share via...'}
               </Text>
             </Pressable>
           </View>

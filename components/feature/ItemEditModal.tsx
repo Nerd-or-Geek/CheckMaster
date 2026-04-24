@@ -26,8 +26,8 @@ export default function ItemEditModal({
   visible, onClose, checklistId, item, sections,
   enableQuantity, enableNotes, enableImages, defaultCategory,
 }: ItemEditModalProps) {
-  const { settings, addItem, updateItem } = useApp();
-  const theme = settings.darkMode ? colors.dark : colors.light;
+  const { settings, isDark, addItem, updateItem } = useApp();
+  const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
 
   const [name, setName] = useState('');
@@ -105,7 +105,7 @@ export default function ItemEditModal({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <Text style={[styles.label, { color: theme.textSecondary }]}>NAME *</Text>
+              <Text style={[styles.label, { color: theme.textTertiary }]}>NAME *</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
                 value={name}
@@ -114,7 +114,7 @@ export default function ItemEditModal({
                 placeholderTextColor={theme.textTertiary}
               />
 
-              <Text style={[styles.label, { color: theme.textSecondary }]}>DESCRIPTION</Text>
+              <Text style={[styles.label, { color: theme.textTertiary }]}>DESCRIPTION</Text>
               <TextInput
                 style={[styles.input, styles.multiline, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
                 value={description}
@@ -125,9 +125,9 @@ export default function ItemEditModal({
                 numberOfLines={2}
               />
 
-              {sections.length > 0 && (
+              {sections.length > 0 ? (
                 <>
-                  <Text style={[styles.label, { color: theme.textSecondary }]}>SECTION</Text>
+                  <Text style={[styles.label, { color: theme.textTertiary }]}>SECTION</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                     <View style={styles.chipRow}>
                       {sections.map(s => (
@@ -147,9 +147,9 @@ export default function ItemEditModal({
                     </View>
                   </ScrollView>
                 </>
-              )}
+              ) : null}
 
-              <Text style={[styles.label, { color: theme.textSecondary }]}>CATEGORY</Text>
+              <Text style={[styles.label, { color: theme.textTertiary }]}>CATEGORY</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                 <View style={styles.chipRow}>
                   {DEFAULT_CATEGORIES.map(cat => {
@@ -173,10 +173,10 @@ export default function ItemEditModal({
                 </View>
               </ScrollView>
 
-              {enableQuantity && (
+              {enableQuantity ? (
                 <View style={styles.qtyRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, { color: theme.textSecondary }]}>REQUIRED QTY</Text>
+                    <Text style={[styles.label, { color: theme.textTertiary }]}>REQUIRED QTY</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
                       value={requiredQty}
@@ -187,7 +187,7 @@ export default function ItemEditModal({
                   </View>
                   <View style={{ width: 12 }} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, { color: theme.textSecondary }]}>OWNED QTY</Text>
+                    <Text style={[styles.label, { color: theme.textTertiary }]}>OWNED QTY</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
                       value={ownedQty}
@@ -197,11 +197,11 @@ export default function ItemEditModal({
                     />
                   </View>
                 </View>
-              )}
+              ) : null}
 
-              {enableNotes && (
+              {enableNotes ? (
                 <>
-                  <Text style={[styles.label, { color: theme.textSecondary }]}>NOTES</Text>
+                  <Text style={[styles.label, { color: theme.textTertiary }]}>NOTES</Text>
                   <TextInput
                     style={[styles.input, styles.multiline, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border, minHeight: 80 }]}
                     value={notes}
@@ -212,17 +212,17 @@ export default function ItemEditModal({
                     numberOfLines={3}
                   />
                 </>
-              )}
+              ) : null}
 
-              {enableImages && (
+              {enableImages ? (
                 <>
-                  <Text style={[styles.label, { color: theme.textSecondary }]}>IMAGES</Text>
+                  <Text style={[styles.label, { color: theme.textTertiary }]}>IMAGES</Text>
                   <Pressable style={[styles.imageUpload, { borderColor: theme.border, backgroundColor: theme.backgroundSecondary }]}>
                     <MaterialIcons name="add-photo-alternate" size={32} color={theme.textTertiary} />
                     <Text style={{ color: theme.textTertiary, fontSize: 13, marginTop: 4 }}>Tap to upload images</Text>
                   </Pressable>
                 </>
-              )}
+              ) : null}
             </ScrollView>
 
             <View style={styles.footer}>
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 18, fontWeight: '700' },
   body: { paddingHorizontal: 20 },
-  label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 6 },
+  label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
   input: {
     height: 48, borderRadius: 12, paddingHorizontal: 14,
     fontSize: 15, borderWidth: 1, marginBottom: 16,

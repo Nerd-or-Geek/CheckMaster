@@ -17,13 +17,13 @@ import ShareChecklistModal from '../../components/feature/ShareChecklistModal';
 
 export default function ChecklistScreen() {
   const {
-    settings, viewMode, setViewMode,
+    settings, isDark, viewMode, setViewMode,
     getActiveChecklist,
     toggleItemCheck, setItemStatus, deleteItem,
     addSection, deleteSection, toggleSectionExpand, updateSection,
     updateChecklist,
   } = useApp();
-  const theme = settings.darkMode ? colors.dark : colors.light;
+  const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
   const { isMobile, contentPadding, itemHeight } = useResponsive();
 
@@ -37,7 +37,7 @@ export default function ChecklistScreen() {
   const [newSectionName, setNewSectionName] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
-  const [showStatusPicker, setShowStatusPicker] = useState<string | null>(null); // itemId
+  const [showStatusPicker, setShowStatusPicker] = useState<string | null>(null);
   const [showAddStatus, setShowAddStatus] = useState(false);
   const [newStatusLabel, setNewStatusLabel] = useState('');
   const [newStatusColor, setNewStatusColor] = useState('#6B7280');
@@ -77,9 +77,9 @@ export default function ChecklistScreen() {
   const canShare = isOwner || shareRole === 'edit';
 
   const shareBannerLabel =
-    shareRole === 'view' ? 'View only — shared checklist' :
-      shareRole === 'check' ? 'Check only — you can mark items done' :
-        shareRole === 'edit' ? 'Edit access — shared checklist' : null;
+    shareRole === 'view' ? 'View only \u2014 shared checklist' :
+      shareRole === 'check' ? 'Check only \u2014 you can mark items done' :
+        shareRole === 'edit' ? 'Edit access \u2014 shared checklist' : null;
 
   const toggleNoteExpand = (id: string) => {
     setExpandedNotes(prev => {
@@ -103,7 +103,6 @@ export default function ChecklistScreen() {
     const hasNotes = checklist.settings.enableNotes && item.notes;
     const notesExpanded = expandedNotes.has(item.id);
 
-    // Status system
     const currentStatus: ItemStatus | undefined = useStatuses
       ? activeStatuses.find(s => s.id === (item.status ?? activeStatuses[0]?.id))
       : undefined;
@@ -127,7 +126,6 @@ export default function ChecklistScreen() {
         >
           <View style={styles.itemRow}>
             {useStatuses ? (
-              // Status cycling button
               <Pressable
                 style={[styles.statusBtn, { borderColor: currentStatus?.color ?? '#6B7280', opacity: canCheckItems ? 1 : 0.55 }]}
                 onPress={() => {
@@ -147,7 +145,6 @@ export default function ChecklistScreen() {
                 </Text>
               </Pressable>
             ) : (
-              // Plain checkbox
               <Pressable
                 style={[styles.checkbox, {
                   backgroundColor: item.checked ? theme.success : 'transparent',
@@ -160,7 +157,7 @@ export default function ChecklistScreen() {
                   toggleItemCheck(checklist.id, item.id);
                 }}
               >
-                {item.checked && <MaterialIcons name="check" size={16} color="#FFF" />}
+                {item.checked ? <MaterialIcons name="check" size={16} color="#FFF" /> : null}
               </Pressable>
             )}
 
@@ -187,7 +184,7 @@ export default function ChecklistScreen() {
                 </Text>
               ) : null}
 
-              {checklist.settings.enableQuantity && item.requiredQty > 0 && (
+              {checklist.settings.enableQuantity && item.requiredQty > 0 ? (
                 <View style={styles.qtyRow}>
                   <View style={[styles.qtyBar, { backgroundColor: theme.backgroundSecondary }]}>
                     <View style={[styles.qtyBarFill, {
@@ -199,9 +196,9 @@ export default function ChecklistScreen() {
                     {item.ownedQty}/{item.requiredQty}
                   </Text>
                 </View>
-              )}
+              ) : null}
 
-              {hasNotes && (
+              {hasNotes ? (
                 <Pressable
                   style={styles.notesToggle}
                   onPress={() => toggleNoteExpand(item.id)}
@@ -215,12 +212,12 @@ export default function ChecklistScreen() {
                     {notesExpanded ? 'Hide notes' : 'Notes'}
                   </Text>
                 </Pressable>
-              )}
-              {hasNotes && notesExpanded && (
+              ) : null}
+              {hasNotes && notesExpanded ? (
                 <View style={[styles.notesBox, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
                   <Text style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 18 }}>{item.notes}</Text>
                 </View>
-              )}
+              ) : null}
             </View>
 
             {canEditItems ? (
@@ -296,7 +293,7 @@ export default function ChecklistScreen() {
                     {secPct}%
                   </Text>
                 </Pressable>
-                {section.expanded && (
+                {section.expanded ? (
                   <Animated.View entering={FadeIn.duration(150)}>
                     {sectionItems.length === 0 ? (
                       <View style={[styles.sectionEmpty, { borderColor: theme.border }]}>
@@ -306,12 +303,12 @@ export default function ChecklistScreen() {
                       renderSectionItems(section.id)
                     )}
                   </Animated.View>
-                )}
+                ) : null}
               </View>
             );
           })}
 
-        {unsectionedItems.length > 0 && (
+        {unsectionedItems.length > 0 ? (
           <View style={{ marginTop: 8 }}>
             <View style={[styles.sectionHeader, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
               <MaterialIcons name="inbox" size={20} color={theme.textSecondary} />
@@ -320,7 +317,7 @@ export default function ChecklistScreen() {
             </View>
             {unsectionedItems.map(item => renderItem(item))}
           </View>
-        )}
+        ) : null}
       </>
     );
   };
@@ -383,7 +380,7 @@ export default function ChecklistScreen() {
             {completedCount}/{totalCount}
           </Text>
         </View>
-        <View style={styles.toggleRow}>
+        <View style={[styles.toggleRow, { backgroundColor: theme.backgroundSecondary }]}>
           {(['interactive', 'stats'] as const).map(mode => (
             <Pressable
               key={mode}
@@ -414,7 +411,6 @@ export default function ChecklistScreen() {
         <StatsView checklist={checklist} />
       ) : (
         <>
-          {/* Action Bar */}
           {canStructure ? (
             <View style={[styles.actionBar, { paddingHorizontal: contentPadding }]}>
               <Pressable
@@ -424,7 +420,7 @@ export default function ChecklistScreen() {
                 <MaterialIcons name="add" size={18} color="#FFF" />
                 <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>Add Item</Text>
               </Pressable>
-              {checklist.settings.enableSections && (
+              {checklist.settings.enableSections ? (
                 <Pressable
                   style={[styles.actionBtn, { backgroundColor: theme.primaryBg, borderColor: theme.primary, borderWidth: 1 }]}
                   onPress={() => { Haptics.selectionAsync(); setShowAddSection(true); }}
@@ -432,7 +428,7 @@ export default function ChecklistScreen() {
                   <MaterialIcons name="playlist-add" size={18} color={theme.primary} />
                   <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Section</Text>
                 </Pressable>
-              )}
+              ) : null}
             </View>
           ) : null}
 
@@ -528,7 +524,7 @@ export default function ChecklistScreen() {
                 </Pressable>
               ))}
 
-              <Text style={[styles.settingSectionLabel, { color: theme.textSecondary }]}>CHART TYPE</Text>
+              <Text style={[styles.settingSectionLabel, { color: theme.textTertiary }]}>CHART TYPE</Text>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
                 {([null, 'pie', 'bar'] as const).map(ct => (
                   <Pressable
@@ -554,7 +550,7 @@ export default function ChecklistScreen() {
                 ))}
               </View>
 
-              <Text style={[styles.settingSectionLabel, { color: theme.textSecondary }]}>TOOLS</Text>
+              <Text style={[styles.settingSectionLabel, { color: theme.textTertiary }]}>TOOLS</Text>
               {canStructure ? (
                 <Pressable
                   style={[styles.toolBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
@@ -569,8 +565,7 @@ export default function ChecklistScreen() {
                 </Pressable>
               ) : null}
 
-              <Text style={[styles.settingSectionLabel, { color: theme.textSecondary }]}>ITEM STATUSES</Text>
-              {/* Enable / disable toggle */}
+              <Text style={[styles.settingSectionLabel, { color: theme.textTertiary }]}>ITEM STATUSES</Text>
               <Pressable
                 style={[styles.settingRow, { borderBottomColor: theme.borderLight }]}
                 onPress={() => {
@@ -591,17 +586,17 @@ export default function ChecklistScreen() {
                 </View>
               </Pressable>
 
-              {useStatuses && (
+              {useStatuses ? (
                 <View style={{ marginTop: 10, marginBottom: 4 }}>
                   {activeStatuses.map(st => (
                     <View key={st.id} style={[styles.statusRow, { borderColor: theme.border }]}>
-                      <View style={[styles.statusDot, { backgroundColor: st.color, width: 12, height: 12 }]} />
+                      <View style={[styles.statusDotLg, { backgroundColor: st.color }]} />
                       <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>{st.label}</Text>
-                      {st.isDone && (
+                      {st.isDone ? (
                         <View style={[{ backgroundColor: theme.successBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginRight: 8 }]}>
                           <Text style={{ color: theme.success, fontSize: 11, fontWeight: '700' }}>DONE</Text>
                         </View>
-                      )}
+                      ) : null}
                       <Pressable
                         onPress={() => {
                           Haptics.selectionAsync();
@@ -631,7 +626,7 @@ export default function ChecklistScreen() {
                     <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Add Status</Text>
                   </Pressable>
                 </View>
-              )}
+              ) : null}
             </ScrollView>
           </View>
         </View>
@@ -649,7 +644,7 @@ export default function ChecklistScreen() {
         defaultCategory={checklist.settings.defaultCategory}
       />
 
-      {/* Status picker (long-press on a status button) */}
+      {/* Status picker */}
       <Modal visible={!!showStatusPicker} animationType="fade" transparent>
         <Pressable style={[styles.modalOverlay, { backgroundColor: theme.overlay }]} onPress={() => setShowStatusPicker(null)}>
           <View style={[styles.miniModal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16, margin: 24, borderRadius: 20 }]}>
@@ -677,10 +672,10 @@ export default function ChecklistScreen() {
                       setShowStatusPicker(null);
                     }}
                   >
-                    <View style={[styles.statusDot, { backgroundColor: st.color, width: 12, height: 12 }]} />
+                    <View style={[styles.statusDotLg, { backgroundColor: st.color }]} />
                     <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600', flex: 1 }}>{st.label}</Text>
-                    {st.isDone && <Text style={{ color: theme.success, fontSize: 12, fontWeight: '700' }}>✓ Done</Text>}
-                    {isActive && <MaterialIcons name="check-circle" size={20} color={st.color} />}
+                    {st.isDone ? <Text style={{ color: theme.success, fontSize: 12, fontWeight: '700' }}>Done</Text> : null}
+                    {isActive ? <MaterialIcons name="check-circle" size={20} color={st.color} /> : null}
                   </Pressable>
                 );
               })}
@@ -689,7 +684,7 @@ export default function ChecklistScreen() {
         </Pressable>
       </Modal>
 
-      {/* Add new status mini-modal */}
+      {/* Add new status modal */}
       <Modal visible={showAddStatus} animationType="slide" transparent>
         <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
           <View style={[styles.miniModal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
@@ -708,7 +703,7 @@ export default function ChecklistScreen() {
                 placeholderTextColor={theme.textTertiary}
                 autoFocus
               />
-              <Text style={[styles.miniStatusLabel, { color: theme.textSecondary }]}>COLOR</Text>
+              <Text style={[styles.miniLabel, { color: theme.textTertiary }]}>COLOR</Text>
               <View style={styles.colorRow}>
                 {STATUS_COLORS.map(c => (
                   <Pressable
@@ -782,7 +777,7 @@ const styles = StyleSheet.create({
   pctBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   pBar: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
   pBarFill: { height: 6, borderRadius: 3 },
-  toggleRow: { flexDirection: 'row', gap: 4, marginTop: 10, backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 10, padding: 3 },
+  toggleRow: { flexDirection: 'row', gap: 4, marginTop: 10, borderRadius: 10, padding: 3 },
   toggleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRadius: 8 },
   actionBar: { flexDirection: 'row', gap: 8, paddingVertical: 8 },
   actionBtn: {
@@ -845,7 +840,7 @@ const styles = StyleSheet.create({
   toggleSwitch: { width: 44, height: 24, borderRadius: 12, justifyContent: 'center' },
   toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFF' },
   settingSectionLabel: {
-    fontSize: 11, fontWeight: '600', letterSpacing: 0.5,
+    fontSize: 11, fontWeight: '700', letterSpacing: 0.8,
     textTransform: 'uppercase', marginTop: 20, marginBottom: 10,
   },
   chartTypeBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center' },
@@ -853,13 +848,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', padding: 14,
     borderRadius: 12, borderWidth: 1, marginBottom: 20,
   },
-  // Status system
   statusBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 4,
     minWidth: 64, maxWidth: 90, marginTop: 2,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusDotLg: { width: 12, height: 12, borderRadius: 6 },
   statusRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, marginBottom: 6,
@@ -875,5 +870,5 @@ const styles = StyleSheet.create({
   },
   colorRow: { flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' },
   colorDot: { width: 32, height: 32, borderRadius: 16 },
-  miniStatusLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
+  miniLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 },
 });

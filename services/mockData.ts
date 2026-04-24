@@ -76,12 +76,15 @@ export interface Folder {
 
 export interface AppSettings {
   darkMode: boolean;
+  /** Follow system dark mode — overrides the manual toggle when true */
+  systemDarkMode: boolean;
   defaultView: 'interactive' | 'stats';
   chartType: 'pie' | 'bar';
   density: 'compact' | 'comfortable';
-  storageMode: 'local' | 'cloud';
+  /** local = device only | server = custom self-hosted | cloud = Gledhill Cloud (paid) */
+  storageMode: 'local' | 'server' | 'cloud';
   lastSyncTime: number | null;
-  /** Base URL of your CheckMaster sync server, e.g. https://sync.example.com:3847 (no trailing slash). */
+  /** Base URL of your self-hosted sync server (no trailing slash). */
   serverUrl: string;
   /** API key printed by the server install script (header X-API-Key). */
   serverApiKey: string;
@@ -93,6 +96,7 @@ export interface AppSettings {
 
 export const defaultSettings: AppSettings = {
   darkMode: false,
+  systemDarkMode: true,
   defaultView: 'interactive',
   chartType: 'pie',
   density: 'comfortable',

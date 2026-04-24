@@ -1,7 +1,15 @@
 import { Tabs } from 'expo-router';
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { colors } from '../../constants/theme';
+import { useApp } from '../../contexts/AppContext';
 
 export default function TabLayout() {
+  const { isDark } = useApp();
+  const theme = isDark ? colors.dark : colors.light;
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={({ route }) => ({
@@ -17,16 +25,30 @@ export default function TabLayout() {
           }
           return null;
         },
-        tabBarActiveTintColor: '#3B82F6',
-        tabBarInactiveTintColor: '#64748B',
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textTertiary,
         tabBarStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: theme.tabBar,
           borderTopWidth: 1,
-          borderTopColor: '#E2E8F0',
-          height: 60,
+          borderTopColor: theme.tabBarBorder,
+          height: Platform.select({
+            ios: insets.bottom + 60,
+            android: insets.bottom + 60,
+            default: 64,
+          }),
+          paddingTop: 6,
+          paddingBottom: Platform.select({
+            ios: insets.bottom + 6,
+            android: insets.bottom + 6,
+            default: 8,
+          }),
         },
         headerShown: false,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginBottom: 2,
+        },
       })}
     >
       <Tabs.Screen name="index" options={{ title: 'Folders' }} />

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants/config';
 import {
@@ -42,6 +43,8 @@ interface AppContextType {
   activeChecklistId: string | null;
   currentFolderId: string | null;
   viewMode: 'interactive' | 'stats';
+  /** Resolved dark mode considering system preference */
+  isDark: boolean;
 
   setActiveChecklistId: (id: string | null) => void;
   setCurrentFolderId: (id: string | null) => void;
@@ -72,6 +75,9 @@ interface AppContextType {
   importCSV: (checklistId: string, sections: { name: string; items: Omit<ChecklistItem, 'id' | 'createdAt'>[] }[]) => void;
   importSharedChecklist: (folderId: string, pastedText: string) => { ok: true } | { ok: false; error: string };
 
+  /** Wipe all data from device — used by account deletion */
+  deleteAllData: () => Promise<void>;
+
   testSyncServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
   pushDataToServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
   pullDataFromServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -93,12 +99,18 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const systemScheme = useColorScheme();
   const [folders, setFolders] = useState<Folder[]>(initialFolders);
   const [checklists, setChecklists] = useState<Checklist[]>(initialChecklists);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>('cl1');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'interactive' | 'stats'>('interactive');
+
+  // Resolved dark mode: system preference when systemDarkMode is true, else manual
+  const isDark = settings.systemDarkMode
+    ? systemScheme === 'dark'
+    : settings.darkMode;
 
   useEffect(() => {
     (async () => {
@@ -252,7 +264,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!canToggleChecks(c)) return c;
       const statuses = c.settings.itemStatuses;
       if (statuses && statuses.length > 0) {
-        // Cycle to the next status in the list
         return {
           ...c,
           items: c.items.map(i => {
@@ -284,10 +295,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (c.id !== checklistId) return c;
       if (!canToggleChecks(c)) return c;
       const statuses = c.settings.itemStatuses ?? [];
-      const isDone = statuses.find(s => s.id === statusId)?.isDone ?? false;
+      const isDoneVal = statuses.find(s => s.id === statusId)?.isDone ?? false;
       return {
         ...c,
-        items: c.items.map(i => i.id !== itemId ? i : { ...i, status: statusId, checked: isDone }),
+        items: c.items.map(i => i.id !== itemId ? i : { ...i, status: statusId, checked: isDoneVal }),
         updatedAt: Date.now(),
       };
     }));
@@ -356,6 +367,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updatedAt: Date.now(),
       };
     }));
+  }, []);
+
+  const deleteAllData = useCallback(async () => {
+    setFolders([]);
+    setChecklists([]);
+    setActiveChecklistId(null);
+    setSettings({ ...defaultSettings });
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.FOLDERS,
+      STORAGE_KEYS.CHECKLISTS,
+      STORAGE_KEYS.SETTINGS,
+      STORAGE_KEYS.ACTIVE_CHECKLIST,
+    ]);
   }, []);
 
   const testSyncServer = useCallback(async () => {
@@ -436,8 +460,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let items = cl.items;
     if (sectionId !== undefined && sectionId !== null) {
       items = items.filter(i => i.sectionId === sectionId);
-    } else if (sectionId === null) {
-      // null means unsectioned items
     }
 
     const statuses = cl.settings.itemStatuses;
@@ -468,13 +490,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      folders, checklists, settings, activeChecklistId, currentFolderId, viewMode,
+      folders, checklists, settings, activeChecklistId, currentFolderId, viewMode, isDark,
       setActiveChecklistId, setCurrentFolderId, setViewMode,
       addFolder, updateFolder, deleteFolder, toggleFolderExpand,
       addChecklist, updateChecklist, deleteChecklist, moveChecklist,
       addSection, updateSection, deleteSection, toggleSectionExpand,
       addItem, updateItem, deleteItem, toggleItemCheck, setItemStatus,
-      updateSettings, importCSV, importSharedChecklist,
+      updateSettings, importCSV, importSharedChecklist, deleteAllData,
       testSyncServer, pushDataToServer, pullDataFromServer, registerServerProfile, loginServerProfile,
       getActiveChecklist, getFolderChildren, getFolderChecklists, getChecklistStats,
     }}>

@@ -13,8 +13,8 @@ interface StatsViewProps {
 }
 
 export default function StatsView({ checklist }: StatsViewProps) {
-  const { settings, getChecklistStats } = useApp();
-  const theme = settings.darkMode ? colors.dark : colors.light;
+  const { settings, isDark, getChecklistStats } = useApp();
+  const theme = isDark ? colors.dark : colors.light;
   const chartType = checklist.settings.chartTypeOverride || settings.chartType;
 
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export default function StatsView({ checklist }: StatsViewProps) {
 
   return (
     <View style={{ flex: 1 }}>
-      {checklist.sections.length > 0 && (
+      {checklist.sections.length > 0 ? (
         <View style={{ marginBottom: 16 }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
             {allSections.map(sec => {
@@ -68,10 +68,9 @@ export default function StatsView({ checklist }: StatsViewProps) {
             })}
           </ScrollView>
         </View>
-      )}
+      ) : null}
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {/* Overview Card */}
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Completion Overview</Text>
           <View style={styles.overviewRow}>
@@ -104,8 +103,7 @@ export default function StatsView({ checklist }: StatsViewProps) {
           </View>
         </View>
 
-        {/* Chart Card */}
-        {catEntries.length > 0 && (
+        {catEntries.length > 0 ? (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>
               {chartType === 'pie' ? 'Completion Distribution' : 'Category Progress'}
@@ -118,9 +116,8 @@ export default function StatsView({ checklist }: StatsViewProps) {
               )}
             </View>
           </View>
-        )}
+        ) : null}
 
-        {/* Category Breakdown */}
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Category Breakdown</Text>
           {catEntries.length === 0 ? (
@@ -128,7 +125,7 @@ export default function StatsView({ checklist }: StatsViewProps) {
           ) : (
             catEntries.map(([cat, data]) => {
               const catColor = categoryColors[cat] || categoryColors.general;
-              const pct = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
+              const pctVal = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
               return (
                 <View key={cat} style={styles.catRow}>
                   <View style={[styles.catDot, { backgroundColor: catColor.dot }]} />
@@ -139,17 +136,16 @@ export default function StatsView({ checklist }: StatsViewProps) {
                     {data.completed}/{data.total}
                   </Text>
                   <View style={[styles.catBar, { backgroundColor: theme.backgroundSecondary }]}>
-                    <View style={[styles.catBarFill, { width: `${pct}%`, backgroundColor: catColor.dot }]} />
+                    <View style={[styles.catBarFill, { width: `${pctVal}%`, backgroundColor: catColor.dot }]} />
                   </View>
-                  <Text style={[styles.catPct, { color: theme.textSecondary }]}>{pct}%</Text>
+                  <Text style={[styles.catPct, { color: theme.textSecondary }]}>{pctVal}%</Text>
                 </View>
               );
             })
           )}
         </View>
 
-        {/* Section Stats */}
-        {checklist.sections.length > 0 && !effectiveSectionId && (
+        {checklist.sections.length > 0 && !effectiveSectionId ? (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Section Summary</Text>
             {checklist.sections.map(sec => {
@@ -177,10 +173,9 @@ export default function StatsView({ checklist }: StatsViewProps) {
               );
             })}
           </View>
-        )}
+        ) : null}
 
-        {/* Partially Complete Items */}
-        {stats.partialItems.length > 0 && (
+        {stats.partialItems.length > 0 ? (
           <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.partialHeader}>
               <MaterialIcons name="pending" size={20} color={theme.warning} />
@@ -189,23 +184,23 @@ export default function StatsView({ checklist }: StatsViewProps) {
               </Text>
             </View>
             {stats.partialItems.map(item => {
-              const pct = Math.round((item.ownedQty / item.requiredQty) * 100);
+              const pctVal = Math.round((item.ownedQty / item.requiredQty) * 100);
               return (
                 <View key={item.id} style={[styles.partialRow, { borderBottomColor: theme.borderLight }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '500' }}>{item.name}</Text>
                     <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                      {item.ownedQty} of {item.requiredQty} ({pct}%)
+                      {item.ownedQty} of {item.requiredQty} ({pctVal}%)
                     </Text>
                   </View>
                   <View style={[styles.partialBar, { backgroundColor: theme.backgroundSecondary }]}>
-                    <View style={[styles.partialBarFill, { width: `${pct}%`, backgroundColor: theme.warning }]} />
+                    <View style={[styles.partialBarFill, { width: `${pctVal}%`, backgroundColor: theme.warning }]} />
                   </View>
                 </View>
               );
             })}
           </View>
-        )}
+        ) : null}
       </ScrollView>
     </View>
   );
