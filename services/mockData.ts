@@ -19,12 +19,17 @@ export interface Section {
   order: number;
 }
 
+/** `owner` = full control; shared imports use view / check / edit. */
+export type ChecklistShareRole = 'owner' | 'view' | 'check' | 'edit';
+
 export interface Checklist {
   id: string;
   name: string;
   description: string;
   folderId: string;
   type: 'basic' | 'quantity' | 'full';
+  /** When set (or imported), limits what the user can change in this copy. */
+  shareRole?: ChecklistShareRole;
   sections: Section[];
   items: ChecklistItem[];
   settings: {
@@ -55,6 +60,10 @@ export interface AppSettings {
   density: 'compact' | 'comfortable';
   storageMode: 'local' | 'cloud';
   lastSyncTime: number | null;
+  /** Base URL of your CheckMaster sync server, e.g. https://sync.example.com:3847 (no trailing slash). */
+  serverUrl: string;
+  /** API key printed by the server install script (header X-API-Key). */
+  serverApiKey: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -64,6 +73,8 @@ export const defaultSettings: AppSettings = {
   density: 'comfortable',
   storageMode: 'local',
   lastSyncTime: null,
+  serverUrl: '',
+  serverApiKey: '',
 };
 
 function genId(): string {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Pressable, ScrollView, StyleSheet, TextInput, Modal, Platform,
+  View, Text, Pressable, ScrollView, StyleSheet, TextInput, Modal, Platform, Alert, KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ export default function FoldersScreen() {
     addFolder, deleteFolder, toggleFolderExpand,
     addChecklist, deleteChecklist,
     setActiveChecklistId, setCurrentFolderId,
+    importSharedChecklist,
   } = useApp();
   const theme = settings.darkMode ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
@@ -38,6 +39,8 @@ export default function FoldersScreen() {
   const [newChecklistDesc, setNewChecklistDesc] = useState('');
   const [newChecklistType, setNewChecklistType] = useState<'basic' | 'quantity' | 'full'>('basic');
   const [showMoveMenu, setShowMoveMenu] = useState<string | null>(null);
+  const [showImportShare, setShowImportShare] = useState(false);
+  const [importPasteText, setImportPasteText] = useState('');
 
   const childFolders = getFolderChildren(currentFolderId);
   const currentChecklists = currentFolderId ? getFolderChecklists(currentFolderId) : [];
@@ -93,14 +96,54 @@ export default function FoldersScreen() {
     setShowCreateChecklist(false);
   };
 
-  const handleDeleteFolder = (id: string) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    deleteFolder(id);
+  const confirmDeleteFolder = (folder: { id: string; name: string }) => {
+    Alert.alert(
+      'Delete folder?',
+      `"${folder.name}" and everything inside it (subfolders and checklists) will be permanently removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            deleteFolder(folder.id);
+            setNavStack([null]);
+          },
+        },
+      ],
+    );
   };
 
-  const handleDeleteChecklist = (id: string) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    deleteChecklist(id);
+  const confirmDeleteChecklist = (cl: Checklist) => {
+    Alert.alert(
+      'Delete checklist?',
+      `Remove "${cl.name}" and all of its items? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            deleteChecklist(cl.id);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleImportShared = () => {
+    if (!currentFolderId) return;
+    const result = importSharedChecklist(currentFolderId, importPasteText);
+    if (result.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setImportPasteText('');
+      setShowImportShare(false);
+      router.push('/(tabs)/checklist');
+    } else {
+      Alert.alert('Import failed', result.error);
+    }
   };
 
   const rootFolders = getFolderChildren(null);
@@ -190,22 +233,30 @@ export default function FoldersScreen() {
               const clCount = getFolderChecklists(folder.id).length;
               return (
                 <Animated.View key={folder.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
-                  <Pressable
-                    style={[styles.folderCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                    onPress={() => navigateInto(folder.id)}
-                    onLongPress={() => handleDeleteFolder(folder.id)}
-                  >
-                    <View style={[styles.folderIcon, { backgroundColor: folder.color + '18' }]}>
-                      <MaterialIcons name="folder" size={28} color={folder.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.folderName, { color: theme.textPrimary }]}>{folder.name}</Text>
-                      <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-                        {subCount > 0 ? `${subCount} subfolder${subCount > 1 ? 's' : ''} · ` : ''}{clCount} checklist{clCount !== 1 ? 's' : ''}
-                      </Text>
-                    </View>
-                    <MaterialIcons name="chevron-right" size={24} color={theme.textTertiary} />
-                  </Pressable>
+                  <View style={[styles.listRow, { marginBottom: 8 }]}>
+                    <Pressable
+                      style={[styles.folderCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1, marginBottom: 0 }]}
+                      onPress={() => navigateInto(folder.id)}
+                    >
+                      <View style={[styles.folderIcon, { backgroundColor: folder.color + '18' }]}>
+                        <MaterialIcons name="folder" size={28} color={folder.color} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.folderName, { color: theme.textPrimary }]}>{folder.name}</Text>
+                        <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                          {subCount > 0 ? `${subCount} subfolder${subCount > 1 ? 's' : ''} · ` : ''}{clCount} checklist{clCount !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <MaterialIcons name="chevron-right" size={24} color={theme.textTertiary} />
+                    </Pressable>
+                    <Pressable
+                      style={[styles.deleteIconBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                      onPress={() => confirmDeleteFolder(folder)}
+                      hitSlop={8}
+                    >
+                      <MaterialIcons name="delete-outline" size={22} color={theme.error} />
+                    </Pressable>
+                  </View>
                 </Animated.View>
               );
             })}
@@ -217,13 +268,22 @@ export default function FoldersScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>CHECKLISTS</Text>
-              <Pressable
-                style={[styles.addSmallBtn, { backgroundColor: theme.primaryBg }]}
-                onPress={() => { Haptics.selectionAsync(); setShowCreateChecklist(true); }}
-              >
-                <MaterialIcons name="add" size={18} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>New</Text>
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Pressable
+                  style={[styles.addSmallBtn, { backgroundColor: theme.backgroundSecondary, borderWidth: 1, borderColor: theme.border }]}
+                  onPress={() => { Haptics.selectionAsync(); setShowImportShare(true); }}
+                >
+                  <MaterialIcons name="download" size={18} color={theme.textSecondary} />
+                  <Text style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '600' }}>Import</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.addSmallBtn, { backgroundColor: theme.primaryBg }]}
+                  onPress={() => { Haptics.selectionAsync(); setShowCreateChecklist(true); }}
+                >
+                  <MaterialIcons name="add" size={18} color={theme.primary} />
+                  <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>New</Text>
+                </Pressable>
+              </View>
             </View>
 
             {currentChecklists.length === 0 ? (
@@ -246,11 +306,11 @@ export default function FoldersScreen() {
                 const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                 return (
                   <Animated.View key={cl.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
-                    <Pressable
-                      style={[styles.checklistCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                      onPress={() => openChecklist(cl)}
-                      onLongPress={() => handleDeleteChecklist(cl.id)}
-                    >
+                    <View style={[styles.listRow, { marginBottom: 8 }]}>
+                      <Pressable
+                        style={[styles.checklistCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1, marginBottom: 0 }]}
+                        onPress={() => openChecklist(cl)}
+                      >
                       <View style={styles.clCardTop}>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.clName, { color: theme.textPrimary }]}>{cl.name}</Text>
@@ -278,6 +338,14 @@ export default function FoldersScreen() {
                         </Text>
                       </View>
                       <View style={styles.clTags}>
+                        {cl.shareRole && cl.shareRole !== 'owner' && (
+                          <View style={[styles.clTag, { backgroundColor: theme.primaryBg }]}>
+                            <MaterialIcons name="people" size={12} color={theme.primary} />
+                            <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '600' }}>
+                              {cl.shareRole === 'view' ? 'View' : cl.shareRole === 'check' ? 'Check' : 'Edit'}
+                            </Text>
+                          </View>
+                        )}
                         {cl.sections.length > 0 && (
                           <View style={[styles.clTag, { backgroundColor: theme.backgroundSecondary }]}>
                             <MaterialIcons name="view-list" size={12} color={theme.textSecondary} />
@@ -290,7 +358,15 @@ export default function FoldersScreen() {
                         </View>
                       </View>
                     </Pressable>
-                  </Animated.View>
+                    <Pressable
+                      style={[styles.deleteIconBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                      onPress={() => confirmDeleteChecklist(cl)}
+                      hitSlop={8}
+                    >
+                      <MaterialIcons name="delete-outline" size={22} color={theme.error} />
+                    </Pressable>
+                  </View>
+                </Animated.View>
                 );
               })
             )}
@@ -361,6 +437,51 @@ export default function FoldersScreen() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Import shared checklist */}
+      <Modal visible={showImportShare} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={[styles.modal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Import shared</Text>
+              <Pressable onPress={() => { setShowImportShare(false); setImportPasteText(''); }} hitSlop={12}>
+                <MaterialIcons name="close" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <View style={{ paddingHorizontal: 20 }}>
+              <Text style={{ color: theme.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: 12 }}>
+                Paste the entire message you received (including the lines with CHECKMASTER markers). The checklist will be added to this folder.
+              </Text>
+              <TextInput
+                style={[styles.importTextArea, {
+                  backgroundColor: theme.backgroundSecondary,
+                  color: theme.textPrimary,
+                  borderColor: theme.border,
+                }]}
+                value={importPasteText}
+                onChangeText={setImportPasteText}
+                placeholder="Paste shared checklist…"
+                placeholderTextColor={theme.textTertiary}
+                multiline
+                textAlignVertical="top"
+              />
+              <Pressable
+                style={[styles.createBtn, {
+                  backgroundColor: theme.primary,
+                  opacity: importPasteText.trim().length > 20 ? 1 : 0.45,
+                }]}
+                onPress={handleImportShared}
+                disabled={importPasteText.trim().length < 21}
+              >
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>Import checklist</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Create Checklist Modal */}
@@ -451,6 +572,14 @@ const styles = StyleSheet.create({
   section: { marginTop: 16 },
   sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10, textTransform: 'uppercase' },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  listRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  deleteIconBtn: {
+    width: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   folderCard: {
     flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 14,
     marginBottom: 8, borderWidth: 1, gap: 12,
@@ -488,4 +617,12 @@ const styles = StyleSheet.create({
     height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
   typeCard: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1.5 },
+  importTextArea: {
+    minHeight: 160,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    fontSize: 13,
+    marginBottom: 16,
+  },
 });

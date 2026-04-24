@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, StyleSheet, Modal, Platform,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView, Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,10 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
   const { settings, importCSV } = useApp();
   const theme = settings.darkMode ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
+  const sheetHeight = Math.min(
+    Dimensions.get('window').height * 0.9,
+    Dimensions.get('window').height - insets.top - 24,
+  );
 
   const [step, setStep] = useState<'input' | 'mapping' | 'preview'>('input');
   const [csvText, setCsvText] = useState('');
@@ -117,10 +121,17 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
     <Modal visible={visible} animationType="slide" transparent>
       <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
         <KeyboardAvoidingView
-          style={styles.modalWrap}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={[styles.modalWrap, { height: sheetHeight }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={[styles.modal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
+          <View style={[
+            styles.modal,
+            {
+              backgroundColor: theme.surface,
+              height: sheetHeight,
+              paddingBottom: insets.bottom + 12,
+            },
+          ]}>
             <View style={styles.header}>
               <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>
                 {step === 'input' ? 'Import CSV' : step === 'mapping' ? 'Map Columns' : 'Preview Import'}
@@ -131,8 +142,8 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
             </View>
 
             <ScrollView
-              style={styles.body}
-              contentContainerStyle={{ paddingBottom: 20 }}
+              style={styles.bodyScroll}
+              contentContainerStyle={styles.bodyContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -225,7 +236,7 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
               )}
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { borderTopColor: theme.border }]}>
               {step !== 'input' && (
                 <Pressable
                   style={[styles.backBtn, { borderColor: theme.border }]}
@@ -236,7 +247,7 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
               )}
               <Pressable
                 style={[styles.nextBtn, {
-                  backgroundColor: theme.primary,
+                  backgroundColor: step === 'preview' ? theme.success : theme.primary,
                   opacity: (step === 'input' && !csvText.trim()) ? 0.5 : 1,
                 }]}
                 onPress={() => {
@@ -246,8 +257,14 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
                 }}
                 disabled={step === 'input' && !csvText.trim()}
               >
-                <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>
-                  {step === 'preview' ? 'Import' : 'Next'}
+                <MaterialIcons
+                  name={step === 'preview' ? 'check-circle' : 'arrow-forward'}
+                  size={20}
+                  color="#FFF"
+                  style={{ marginRight: step === 'preview' ? 6 : 0 }}
+                />
+                <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '700' }}>
+                  {step === 'preview' ? 'Apply import' : 'Next'}
                 </Text>
               </Pressable>
             </View>
@@ -260,14 +277,19 @@ export default function CSVImportModal({ visible, onClose, checklistId }: CSVImp
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
-  modalWrap: { maxHeight: '92%' },
-  modal: { borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  modalWrap: { width: '100%' },
+  modal: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    flexDirection: 'column',
+  },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12,
   },
   headerTitle: { fontSize: 18, fontWeight: '700' },
-  body: { paddingHorizontal: 20 },
+  bodyScroll: { flex: 1, minHeight: 0 },
+  bodyContent: { paddingHorizontal: 20, paddingBottom: 16, flexGrow: 1 },
   hint: { fontSize: 14, lineHeight: 20, marginBottom: 16 },
   csvInput: {
     borderRadius: 12, borderWidth: 1, padding: 14, fontSize: 14,
@@ -287,13 +309,24 @@ const styles = StyleSheet.create({
   },
   previewSecName: { fontSize: 15, fontWeight: '600', flex: 1 },
   previewItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1 },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12 },
+  footer: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
+  },
   backBtn: {
-    flex: 1, height: 48, borderRadius: 12, borderWidth: 1,
+    flex: 1, height: 50, borderRadius: 12, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
   nextBtn: {
-    flex: 2, height: 48, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
+    flex: 2,
+    height: 50,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

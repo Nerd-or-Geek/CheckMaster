@@ -13,6 +13,7 @@ import { ChecklistItem, Section } from '../../services/mockData';
 import StatsView from '../../components/feature/StatsView';
 import ItemEditModal from '../../components/feature/ItemEditModal';
 import CSVImportModal from '../../components/feature/CSVImportModal';
+import ShareChecklistModal from '../../components/feature/ShareChecklistModal';
 
 export default function ChecklistScreen() {
   const {
@@ -31,6 +32,7 @@ export default function ChecklistScreen() {
   const [editingItem, setEditingItem] = useState<ChecklistItem | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [showCSVImport, setShowCSVImport] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showChecklistSettings, setShowChecklistSettings] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
@@ -53,6 +55,18 @@ export default function ChecklistScreen() {
   const completedCount = checklist.items.filter(i => i.checked).length;
   const totalCount = checklist.items.length;
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  const shareRole = checklist.shareRole ?? 'owner';
+  const isOwner = shareRole === 'owner';
+  const canEditItems = isOwner || shareRole === 'edit';
+  const canCheckItems = isOwner || shareRole === 'edit' || shareRole === 'check';
+  const canStructure = isOwner || shareRole === 'edit';
+  const canShare = isOwner || shareRole === 'edit';
+
+  const shareBannerLabel =
+    shareRole === 'view' ? 'View only — shared checklist' :
+      shareRole === 'check' ? 'Check only — you can mark items done' :
+        shareRole === 'edit' ? 'Edit access — shared checklist' : null;
 
   const toggleNoteExpand = (id: string) => {
     setExpandedNotes(prev => {
@@ -87,17 +101,20 @@ export default function ChecklistScreen() {
             minHeight: isMobile ? Math.min(itemHeight, 140) : 80,
           }]}
           onLongPress={() => {
+            if (!canEditItems) return;
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             deleteItem(checklist.id, item.id);
           }}
         >
           <View style={styles.itemRow}>
-            <Pressable
-              style={[styles.checkbox, {
+        <Pressable
+          style={[styles.checkbox, {
                 backgroundColor: item.checked ? theme.success : 'transparent',
                 borderColor: item.checked ? theme.success : theme.textTertiary,
+                opacity: canCheckItems ? 1 : 0.55,
               }]}
               onPress={() => {
+                if (!canCheckItems) return;
                 Haptics.selectionAsync();
                 toggleItemCheck(checklist.id, item.id);
               }}
@@ -164,16 +181,20 @@ export default function ChecklistScreen() {
               )}
             </View>
 
-            <Pressable
-              style={styles.editBtn}
-              onPress={() => {
-                Haptics.selectionAsync();
-                setEditingItem(item);
-              }}
-              hitSlop={8}
-            >
-              <MaterialIcons name="edit" size={18} color={theme.textTertiary} />
-            </Pressable>
+            {canEditItems ? (
+              <Pressable
+                style={styles.editBtn}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setEditingItem(item);
+                }}
+                hitSlop={8}
+              >
+                <MaterialIcons name="edit" size={18} color={theme.textTertiary} />
+              </Pressable>
+            ) : (
+              <View style={styles.editBtn} />
+            )}
           </View>
         </Pressable>
       </Animated.View>
@@ -209,6 +230,7 @@ export default function ChecklistScreen() {
                   style={[styles.sectionHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={() => toggleSectionExpand(checklist.id, section.id)}
                   onLongPress={() => {
+                    if (!canStructure) return;
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                     deleteSection(checklist.id, section.id);
                   }}
@@ -273,13 +295,33 @@ export default function ChecklistScreen() {
             </Text>
           ) : null}
         </View>
-        <Pressable
-          onPress={() => { Haptics.selectionAsync(); setShowChecklistSettings(true); }}
-          hitSlop={8}
-        >
-          <MaterialIcons name="tune" size={22} color={theme.textSecondary} />
-        </Pressable>
+        {canShare ? (
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setShowShareModal(true); }}
+            hitSlop={8}
+            style={{ marginRight: 4 }}
+          >
+            <MaterialIcons name="share" size={22} color={theme.primary} />
+          </Pressable>
+        ) : null}
+        {canStructure ? (
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setShowChecklistSettings(true); }}
+            hitSlop={8}
+          >
+            <MaterialIcons name="tune" size={22} color={theme.textSecondary} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 22 }} />
+        )}
       </View>
+
+      {shareBannerLabel ? (
+        <View style={[styles.shareBanner, { marginHorizontal: contentPadding, backgroundColor: theme.primaryBg, borderColor: theme.primary }]}>
+          <MaterialIcons name="info-outline" size={18} color={theme.primary} />
+          <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600', flex: 1, marginLeft: 8 }}>{shareBannerLabel}</Text>
+        </View>
+      ) : null}
 
       {/* Progress + View Toggle */}
       <View style={[styles.progressBar, { marginHorizontal: contentPadding }]}>
@@ -331,24 +373,26 @@ export default function ChecklistScreen() {
       ) : (
         <>
           {/* Action Bar */}
-          <View style={[styles.actionBar, { paddingHorizontal: contentPadding }]}>
-            <Pressable
-              style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-              onPress={() => { Haptics.selectionAsync(); setShowAddItem(true); }}
-            >
-              <MaterialIcons name="add" size={18} color="#FFF" />
-              <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>Add Item</Text>
-            </Pressable>
-            {checklist.settings.enableSections && (
+          {canStructure ? (
+            <View style={[styles.actionBar, { paddingHorizontal: contentPadding }]}>
               <Pressable
-                style={[styles.actionBtn, { backgroundColor: theme.primaryBg, borderColor: theme.primary, borderWidth: 1 }]}
-                onPress={() => { Haptics.selectionAsync(); setShowAddSection(true); }}
+                style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+                onPress={() => { Haptics.selectionAsync(); setShowAddItem(true); }}
               >
-                <MaterialIcons name="playlist-add" size={18} color={theme.primary} />
-                <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Section</Text>
+                <MaterialIcons name="add" size={18} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '600' }}>Add Item</Text>
               </Pressable>
-            )}
-          </View>
+              {checklist.settings.enableSections && (
+                <Pressable
+                  style={[styles.actionBtn, { backgroundColor: theme.primaryBg, borderColor: theme.primary, borderWidth: 1 }]}
+                  onPress={() => { Haptics.selectionAsync(); setShowAddSection(true); }}
+                >
+                  <MaterialIcons name="playlist-add" size={18} color={theme.primary} />
+                  <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Section</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
 
           <ScrollView
             style={{ flex: 1 }}
@@ -469,17 +513,19 @@ export default function ChecklistScreen() {
               </View>
 
               <Text style={[styles.settingSectionLabel, { color: theme.textSecondary }]}>TOOLS</Text>
-              <Pressable
-                style={[styles.toolBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                onPress={() => { setShowChecklistSettings(false); setShowCSVImport(true); }}
-              >
-                <MaterialIcons name="upload-file" size={22} color={theme.primary} />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600' }}>Import CSV</Text>
-                  <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Bulk add items from CSV data</Text>
-                </View>
-                <MaterialIcons name="chevron-right" size={22} color={theme.textTertiary} />
-              </Pressable>
+              {canStructure ? (
+                <Pressable
+                  style={[styles.toolBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+                  onPress={() => { setShowChecklistSettings(false); setShowCSVImport(true); }}
+                >
+                  <MaterialIcons name="upload-file" size={22} color={theme.primary} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600' }}>Import CSV</Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Bulk add items from CSV data</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color={theme.textTertiary} />
+                </Pressable>
+              ) : null}
             </ScrollView>
           </View>
         </View>
@@ -502,13 +548,28 @@ export default function ChecklistScreen() {
         onClose={() => setShowCSVImport(false)}
         checklistId={checklist.id}
       />
+
+      <ShareChecklistModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        checklist={checklist}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 8 },
+  shareBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
   headerTitle: { fontSize: 20, fontWeight: '700' },
   progressBar: { marginBottom: 8 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

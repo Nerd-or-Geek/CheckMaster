@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Switch, Platform } from 'react-native';
+import {
+  View, Text, Pressable, ScrollView, StyleSheet, Switch, Platform, TextInput, Alert, ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -9,11 +11,14 @@ import { useResponsive } from '../../hooks/useResponsive';
 import { APP_NAME, APP_VERSION } from '../../constants/config';
 
 export default function SettingsScreen() {
-  const { settings, updateSettings, folders, checklists } = useApp();
+  const {
+    settings, updateSettings, folders, checklists,
+    testSyncServer, pushDataToServer, pullDataFromServer,
+  } = useApp();
   const theme = settings.darkMode ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
   const { contentPadding } = useResponsive();
-  const [showCloudUI, setShowCloudUI] = useState(false);
+  const [serverBusy, setServerBusy] = useState(false);
 
   const totalItems = checklists.reduce((sum, cl) => sum + cl.items.length, 0);
   const completedItems = checklists.reduce((sum, cl) => sum + cl.items.filter(i => i.checked).length, 0);
@@ -124,7 +129,7 @@ export default function SettingsScreen() {
               borderColor: settings.storageMode === 'local' ? theme.primary : theme.border,
               backgroundColor: settings.storageMode === 'local' ? theme.primaryBg : 'transparent',
             }]}
-            onPress={() => { Haptics.selectionAsync(); updateSettings({ storageMode: 'local' }); setShowCloudUI(false); }}
+            onPress={() => { Haptics.selectionAsync(); updateSettings({ storageMode: 'local' }); }}
           >
             <MaterialIcons
               name={settings.storageMode === 'local' ? 'radio-button-checked' : 'radio-button-unchecked'}
@@ -144,7 +149,7 @@ export default function SettingsScreen() {
               backgroundColor: settings.storageMode === 'cloud' ? theme.primaryBg : 'transparent',
               marginTop: 8,
             }]}
-            onPress={() => { Haptics.selectionAsync(); updateSettings({ storageMode: 'cloud' }); setShowCloudUI(true); }}
+            onPress={() => { Haptics.selectionAsync(); updateSettings({ storageMode: 'cloud' }); }}
           >
             <MaterialIcons
               name={settings.storageMode === 'cloud' ? 'radio-button-checked' : 'radio-button-unchecked'}
@@ -159,33 +164,112 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
-        {/* Cloud UI */}
+        {/* Self-hosted server sync */}
         {settings.storageMode === 'cloud' && (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, paddingBottom: 8 }]}>
+            <Text style={[styles.sectionInnerTitle, { color: theme.textPrimary }]}>
+              Your sync server
+            </Text>
+            <Text style={[styles.serverHint, { color: theme.textSecondary }]}>
+              On Ubuntu, run the install script from the repo’s{' '}
+              <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>server/</Text>
+              {' '}folder. It prints an API key. Use your server’s URL (include port), e.g. http://192.168.1.10:3847
+            </Text>
+
+            <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>SERVER URL</Text>
+            <TextInput
+              style={[styles.serverInput, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
+              value={settings.serverUrl}
+              onChangeText={v => updateSettings({ serverUrl: v })}
+              placeholder="http://your-server:3847"
+              placeholderTextColor={theme.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>API KEY</Text>
+            <TextInput
+              style={[styles.serverInput, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
+              value={settings.serverApiKey}
+              onChangeText={v => updateSettings({ serverApiKey: v })}
+              placeholder="Paste key from server install"
+              placeholderTextColor={theme.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+
             <View style={styles.cloudHeader}>
               <View style={[styles.syncDot, { backgroundColor: theme.success }]} />
-              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-                Last synced: {settings.lastSyncTime ? new Date(settings.lastSyncTime).toLocaleString() : 'Never'}
+              <Text style={{ color: theme.textSecondary, fontSize: 13, flex: 1 }}>
+                Last sync: {settings.lastSyncTime ? new Date(settings.lastSyncTime).toLocaleString() : 'Never'}
               </Text>
             </View>
-            <View style={{ gap: 8, marginTop: 12 }}>
+
+            <View style={{ gap: 8, marginTop: 8, paddingHorizontal: 14, paddingBottom: 8 }}>
               <Pressable
-                style={[styles.cloudBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  updateSettings({ lastSyncTime: Date.now() });
+                style={[styles.cloudBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border, borderWidth: 1 }]}
+                disabled={serverBusy}
+                onPress={async () => {
+                  Haptics.selectionAsync();
+                  setServerBusy(true);
+                  const r = await testSyncServer();
+                  setServerBusy(false);
+                  if (r.ok) Alert.alert('Connected', 'Server responded OK.');
+                  else Alert.alert('Connection failed', r.error);
                 }}
               >
-                <MaterialIcons name="sync" size={20} color="#FFF" />
-                <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>Sync Now</Text>
+                {serverBusy ? <ActivityIndicator color={theme.primary} /> : <MaterialIcons name="wifi-tethering" size={20} color={theme.textPrimary} />}
+                <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>Test connection</Text>
               </Pressable>
-              <Pressable style={[styles.cloudBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border, borderWidth: 1 }]}>
-                <MaterialIcons name="login" size={20} color={theme.textPrimary} />
-                <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>Sign In</Text>
+
+              <Pressable
+                style={[styles.cloudBtn, { backgroundColor: theme.primary }]}
+                disabled={serverBusy}
+                onPress={async () => {
+                  Haptics.selectionAsync();
+                  setServerBusy(true);
+                  const r = await pushDataToServer();
+                  setServerBusy(false);
+                  if (r.ok) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert('Uploaded', 'This device’s data was saved to the server.');
+                  } else Alert.alert('Upload failed', r.error);
+                }}
+              >
+                <MaterialIcons name="cloud-upload" size={20} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>Upload to server</Text>
               </Pressable>
-              <Pressable style={[styles.cloudBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border, borderWidth: 1 }]}>
-                <MaterialIcons name="person-add" size={20} color={theme.textPrimary} />
-                <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }}>Create Account</Text>
+
+              <Pressable
+                style={[styles.cloudBtn, { backgroundColor: theme.warningBg, borderColor: theme.warning, borderWidth: 1 }]}
+                disabled={serverBusy}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  Alert.alert(
+                    'Replace this device?',
+                    'Download will overwrite folders, checklists, and settings on this device with the server copy. Your server URL and API key here are kept.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Download',
+                        style: 'destructive',
+                        onPress: async () => {
+                          setServerBusy(true);
+                          const r = await pullDataFromServer();
+                          setServerBusy(false);
+                          if (r.ok) {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            Alert.alert('Downloaded', 'Data was loaded from the server.');
+                          } else Alert.alert('Download failed', r.error);
+                        },
+                      },
+                    ],
+                  );
+                }}
+              >
+                <MaterialIcons name="cloud-download" size={20} color={theme.warning} />
+                <Text style={{ color: theme.warning, fontSize: 14, fontWeight: '600' }}>Download from server</Text>
               </Pressable>
             </View>
           </View>
@@ -245,6 +329,21 @@ const styles = StyleSheet.create({
   storageOption: {
     flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1.5,
     marginHorizontal: 12, marginTop: 4,
+  },
+  sectionInnerTitle: { fontSize: 16, fontWeight: '700', paddingHorizontal: 16, paddingTop: 14 },
+  serverHint: { fontSize: 13, lineHeight: 19, paddingHorizontal: 16, marginBottom: 12 },
+  inputLabel: {
+    fontSize: 11, fontWeight: '600', letterSpacing: 0.5,
+    marginTop: 8, marginBottom: 6, paddingHorizontal: 16, textTransform: 'uppercase',
+  },
+  serverInput: {
+    marginHorizontal: 16,
+    height: 48,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    borderWidth: 1,
+    marginBottom: 4,
   },
   cloudHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 14 },
   syncDot: { width: 8, height: 8, borderRadius: 4 },

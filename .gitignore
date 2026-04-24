@@ -37,3 +37,6 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# CheckMaster self-hosted sync server (runtime secrets + DB)
+server/data/
