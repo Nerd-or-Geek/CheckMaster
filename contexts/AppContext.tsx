@@ -2,12 +2,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants/config';
 import {
-  Folder, Checklist, ChecklistItem, Section, AppSettings, ChecklistShareRole,
-  defaultSettings, initialFolders, initialChecklists,
+  Folder, Checklist, ChecklistItem, Section, AppSettings, ChecklistShareRole, ItemStatus,
+  DEFAULT_ITEM_STATUSES, defaultSettings, initialFolders, initialChecklists,
 } from '../services/mockData';
 import { decodeChecklistShare } from '../services/checklistShare';
 import {
   pullFromServer, pushToServer, testServerConnection as httpPingServer,
+  registerOnServer, loginOnServer,
 } from '../services/serverSync';
 
 function mergeLoadedSettings(raw: unknown): AppSettings {
@@ -65,6 +66,7 @@ interface AppContextType {
   updateItem: (checklistId: string, itemId: string, updates: Partial<ChecklistItem>) => void;
   deleteItem: (checklistId: string, itemId: string) => void;
   toggleItemCheck: (checklistId: string, itemId: string) => void;
+  setItemStatus: (checklistId: string, itemId: string, statusId: string) => void;
 
   updateSettings: (updates: Partial<AppSettings>) => void;
   importCSV: (checklistId: string, sections: { name: string; items: Omit<ChecklistItem, 'id' | 'createdAt'>[] }[]) => void;
@@ -73,6 +75,8 @@ interface AppContextType {
   testSyncServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
   pushDataToServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
   pullDataFromServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  registerServerProfile: (username: string, password: string, displayName?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  loginServerProfile: (username: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 
   getActiveChecklist: () => Checklist | null;
   getFolderChildren: (parentId: string | null) => Folder[];
@@ -246,6 +250,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChecklists(prev => prev.map(c => {
       if (c.id !== checklistId) return c;
       if (!canToggleChecks(c)) return c;
+      const statuses = c.settings.itemStatuses;
+      if (statuses && statuses.length > 0) {
+        // Cycle to the next status in the list
+        return {
+          ...c,
+          items: c.items.map(i => {
+            if (i.id !== itemId) return i;
+            const currentIdx = statuses.findIndex(s => s.id === (i.status ?? statuses[0].id));
+            const nextStatus = statuses[(currentIdx + 1) % statuses.length];
+            return { ...i, status: nextStatus.id, checked: nextStatus.isDone };
+          }),
+          updatedAt: Date.now(),
+        };
+      }
       return {
         ...c,
         items: c.items.map(i => {
@@ -256,6 +274,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return { ...i, checked: newChecked };
         }),
+        updatedAt: Date.now(),
+      };
+    }));
+  }, []);
+
+  const setItemStatus = useCallback((checklistId: string, itemId: string, statusId: string) => {
+    setChecklists(prev => prev.map(c => {
+      if (c.id !== checklistId) return c;
+      if (!canToggleChecks(c)) return c;
+      const statuses = c.settings.itemStatuses ?? [];
+      const isDone = statuses.find(s => s.id === statusId)?.isDone ?? false;
+      return {
+        ...c,
+        items: c.items.map(i => i.id !== itemId ? i : { ...i, status: statusId, checked: isDone }),
         updatedAt: Date.now(),
       };
     }));
@@ -330,6 +362,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return httpPingServer(settings.serverUrl, settings.serverApiKey);
   }, [settings.serverUrl, settings.serverApiKey]);
 
+  const registerServerProfile = useCallback(async (username: string, password: string, displayName?: string) => {
+    const url = settings.serverUrl.trim();
+    const key = settings.serverApiKey.trim();
+    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key first.' };
+    const result = await registerOnServer(url, key, username, password, displayName);
+    if (!result.ok) return result;
+    setSettings(prev => ({ ...prev, serverUsername: result.user.username, serverDisplayName: result.user.displayName }));
+    return { ok: true as const };
+  }, [settings.serverUrl, settings.serverApiKey]);
+
+  const loginServerProfile = useCallback(async (username: string, password: string) => {
+    const url = settings.serverUrl.trim();
+    const key = settings.serverApiKey.trim();
+    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key first.' };
+    const result = await loginOnServer(url, key, username, password);
+    if (!result.ok) return result;
+    setSettings(prev => ({ ...prev, serverUsername: result.user.username, serverDisplayName: result.user.displayName }));
+    return { ok: true as const };
+  }, [settings.serverUrl, settings.serverApiKey]);
+
   const pushDataToServer = useCallback(async () => {
     const url = settings.serverUrl.trim();
     const key = settings.serverApiKey.trim();
@@ -388,15 +440,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // null means unsectioned items
     }
 
+    const statuses = cl.settings.itemStatuses;
+    const isItemDone = (i: ChecklistItem): boolean => {
+      if (statuses && statuses.length > 0 && i.status) {
+        return statuses.find(s => s.id === i.status)?.isDone ?? false;
+      }
+      return i.checked;
+    };
+
     const total = items.length;
-    const completed = items.filter(i => i.checked).length;
+    const completed = items.filter(isItemDone).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
     const categoryBreakdown: Record<string, { total: number; completed: number }> = {};
     items.forEach(i => {
       if (!categoryBreakdown[i.category]) categoryBreakdown[i.category] = { total: 0, completed: 0 };
       categoryBreakdown[i.category].total++;
-      if (i.checked) categoryBreakdown[i.category].completed++;
+      if (isItemDone(i)) categoryBreakdown[i.category].completed++;
     });
 
     const partialItems = items.filter(i =>
@@ -413,9 +473,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addFolder, updateFolder, deleteFolder, toggleFolderExpand,
       addChecklist, updateChecklist, deleteChecklist, moveChecklist,
       addSection, updateSection, deleteSection, toggleSectionExpand,
-      addItem, updateItem, deleteItem, toggleItemCheck,
+      addItem, updateItem, deleteItem, toggleItemCheck, setItemStatus,
       updateSettings, importCSV, importSharedChecklist,
-      testSyncServer, pushDataToServer, pullDataFromServer,
+      testSyncServer, pushDataToServer, pullDataFromServer, registerServerProfile, loginServerProfile,
       getActiveChecklist, getFolderChildren, getFolderChecklists, getChecklistStats,
     }}>
       {children}

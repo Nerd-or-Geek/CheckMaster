@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
-  View, Text, Pressable, ScrollView, StyleSheet, TextInput, Modal, Platform, Alert, KeyboardAvoidingView,
+  View, Text, Pressable, ScrollView, StyleSheet, TextInput, Modal, Platform, Alert,
+  KeyboardAvoidingView, Animated as RNAnimated, PanResponder,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -14,18 +15,98 @@ import { Folder, Checklist } from '../../services/mockData';
 
 const FOLDER_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
 
+const ACTION_BTN_W = 52;
+const ACTION_GAP = 8;
+
+/** Row wrapper that reveals action buttons on hover (desktop) or swipe-left (mobile). Tablet always shows them. */
+function RevealActionsRow({
+  isMobile, isDesktop, actionSlots, children,
+}: {
+  isMobile: boolean;
+  isDesktop: boolean;
+  actionSlots: React.ReactNode[];
+  children: React.ReactNode;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const revealed = useRef(false);
+  const revealWidth = actionSlots.length * ACTION_BTN_W + (actionSlots.length - 1) * ACTION_GAP;
+  const translateX = useRef(new RNAnimated.Value(0)).current;
+
+  const snapTo = useCallback((target: number) => {
+    revealed.current = target !== 0;
+    RNAnimated.spring(translateX, { toValue: target, useNativeDriver: true, friction: 8 }).start();
+  }, [translateX]);
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, g) =>
+      Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderMove: (_, g) => {
+      const start = revealed.current ? -revealWidth : 0;
+      translateX.setValue(Math.min(0, Math.max(-revealWidth, start + g.dx)));
+    },
+    onPanResponderRelease: (_, g) => {
+      if (g.dx < -30) snapTo(-revealWidth);
+      else if (g.dx > 20) snapTo(0);
+      else snapTo(revealed.current ? -revealWidth : 0);
+    },
+  })).current;
+
+  if (isDesktop) {
+    return (
+      <Pressable
+        style={{ flexDirection: 'row', alignItems: 'stretch', gap: ACTION_GAP }}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+      >
+        <View style={{ flex: 1 }}>{children}</View>
+        {hovered && (
+          <Animated.View entering={FadeIn.duration(120)} style={{ flexDirection: 'row', gap: ACTION_GAP }}>
+            {actionSlots}
+          </Animated.View>
+        )}
+      </Pressable>
+    );
+  }
+
+  if (!isMobile) {
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: ACTION_GAP }}>
+        <View style={{ flex: 1 }}>{children}</View>
+        <View style={{ flexDirection: 'row', gap: ACTION_GAP }}>{actionSlots}</View>
+      </View>
+    );
+  }
+
+  // Mobile: swipe left to reveal
+  return (
+    <View style={{ position: 'relative' }}>
+      <View style={{
+        position: 'absolute', right: 0, top: 0, bottom: 0,
+        flexDirection: 'row', gap: ACTION_GAP, alignItems: 'center',
+        width: revealWidth,
+      }}>
+        {actionSlots}
+      </View>
+      <RNAnimated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
+        {children}
+      </RNAnimated.View>
+    </View>
+  );
+}
+
 export default function FoldersScreen() {
   const {
     settings, folders, checklists,
     getFolderChildren, getFolderChecklists,
-    addFolder, deleteFolder, toggleFolderExpand,
+    addFolder, updateFolder, deleteFolder, toggleFolderExpand,
     addChecklist, deleteChecklist,
     setActiveChecklistId, setCurrentFolderId,
     importSharedChecklist,
   } = useApp();
   const theme = settings.darkMode ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
-  const { isMobile, contentPadding } = useResponsive();
+  const { isMobile, isDesktop, contentPadding } = useResponsive();
   const router = useRouter();
 
   const [navStack, setNavStack] = useState<(string | null)[]>([null]);
@@ -41,6 +122,9 @@ export default function FoldersScreen() {
   const [showMoveMenu, setShowMoveMenu] = useState<string | null>(null);
   const [showImportShare, setShowImportShare] = useState(false);
   const [importPasteText, setImportPasteText] = useState('');
+  const [editingFolder, setEditingFolder] = useState<{ id: string; name: string; color: string } | null>(null);
+  const [editFolderName, setEditFolderName] = useState('');
+  const [editFolderColor, setEditFolderColor] = useState(FOLDER_COLORS[0]);
 
   const childFolders = getFolderChildren(currentFolderId);
   const currentChecklists = currentFolderId ? getFolderChecklists(currentFolderId) : [];
@@ -146,6 +230,13 @@ export default function FoldersScreen() {
     }
   };
 
+  const handleEditFolder = () => {
+    if (!editingFolder || !editFolderName.trim()) return;
+    updateFolder(editingFolder.id, { name: editFolderName.trim(), color: editFolderColor });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setEditingFolder(null);
+  };
+
   const rootFolders = getFolderChildren(null);
   const totalChecklists = checklists.length;
 
@@ -233,9 +324,34 @@ export default function FoldersScreen() {
               const clCount = getFolderChecklists(folder.id).length;
               return (
                 <Animated.View key={folder.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
-                  <View style={[styles.listRow, { marginBottom: 8 }]}>
+                  <RevealActionsRow
+                    isMobile={isMobile}
+                    isDesktop={isDesktop}
+                    actionSlots={[
+                      <Pressable
+                        key="edit"
+                        style={[styles.actionBtn, { borderColor: folder.color + '60', backgroundColor: folder.color + '14' }]}
+                        onPress={() => {
+                          setEditingFolder({ id: folder.id, name: folder.name, color: folder.color });
+                          setEditFolderName(folder.name);
+                          setEditFolderColor(folder.color);
+                        }}
+                        hitSlop={8}
+                      >
+                        <MaterialIcons name="edit" size={20} color={folder.color} />
+                      </Pressable>,
+                      <Pressable
+                        key="delete"
+                        style={[styles.actionBtn, { borderColor: '#EF444460', backgroundColor: '#EF444414' }]}
+                        onPress={() => confirmDeleteFolder(folder)}
+                        hitSlop={8}
+                      >
+                        <MaterialIcons name="delete-outline" size={22} color="#EF4444" />
+                      </Pressable>,
+                    ]}
+                  >
                     <Pressable
-                      style={[styles.folderCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1, marginBottom: 0 }]}
+                      style={[styles.folderCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: 0 }]}
                       onPress={() => navigateInto(folder.id)}
                     >
                       <View style={[styles.folderIcon, { backgroundColor: folder.color + '18' }]}>
@@ -249,14 +365,8 @@ export default function FoldersScreen() {
                       </View>
                       <MaterialIcons name="chevron-right" size={24} color={theme.textTertiary} />
                     </Pressable>
-                    <Pressable
-                      style={[styles.deleteIconBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                      onPress={() => confirmDeleteFolder(folder)}
-                      hitSlop={8}
-                    >
-                      <MaterialIcons name="delete-outline" size={22} color={theme.error} />
-                    </Pressable>
-                  </View>
+                  </RevealActionsRow>
+                  <View style={{ height: 8 }} />
                 </Animated.View>
               );
             })}
@@ -306,9 +416,22 @@ export default function FoldersScreen() {
                 const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                 return (
                   <Animated.View key={cl.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
-                    <View style={[styles.listRow, { marginBottom: 8 }]}>
+                    <RevealActionsRow
+                      isMobile={isMobile}
+                      isDesktop={isDesktop}
+                      actionSlots={[
+                        <Pressable
+                          key="delete"
+                          style={[styles.actionBtn, { borderColor: '#EF444460', backgroundColor: '#EF444414' }]}
+                          onPress={() => confirmDeleteChecklist(cl)}
+                          hitSlop={8}
+                        >
+                          <MaterialIcons name="delete-outline" size={22} color="#EF4444" />
+                        </Pressable>,
+                      ]}
+                    >
                       <Pressable
-                        style={[styles.checklistCard, { backgroundColor: theme.surface, borderColor: theme.border, flex: 1, marginBottom: 0 }]}
+                        style={[styles.checklistCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: 0 }]}
                         onPress={() => openChecklist(cl)}
                       >
                       <View style={styles.clCardTop}>
@@ -358,15 +481,9 @@ export default function FoldersScreen() {
                         </View>
                       </View>
                     </Pressable>
-                    <Pressable
-                      style={[styles.deleteIconBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
-                      onPress={() => confirmDeleteChecklist(cl)}
-                      hitSlop={8}
-                    >
-                      <MaterialIcons name="delete-outline" size={22} color={theme.error} />
-                    </Pressable>
-                  </View>
-                </Animated.View>
+                    </RevealActionsRow>
+                    <View style={{ height: 8 }} />
+                  </Animated.View>
                 );
               })
             )}
@@ -392,6 +509,52 @@ export default function FoldersScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Edit Folder Modal */}
+      <Modal visible={!!editingFolder} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.modal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Edit Folder</Text>
+              <Pressable onPress={() => setEditingFolder(null)} hitSlop={12}>
+                <MaterialIcons name="close" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <View style={{ paddingHorizontal: 20 }}>
+              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>FOLDER NAME</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
+                value={editFolderName}
+                onChangeText={setEditFolderName}
+                placeholder="Folder name"
+                placeholderTextColor={theme.textTertiary}
+                autoFocus
+              />
+              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>COLOR</Text>
+              <View style={styles.colorRow}>
+                {FOLDER_COLORS.map(c => (
+                  <Pressable
+                    key={c}
+                    style={[styles.colorDot, {
+                      backgroundColor: c,
+                      borderWidth: editFolderColor === c ? 3 : 0,
+                      borderColor: theme.textPrimary,
+                    }]}
+                    onPress={() => setEditFolderColor(c)}
+                  />
+                ))}
+              </View>
+              <Pressable
+                style={[styles.createBtn, { backgroundColor: theme.primary, opacity: editFolderName.trim() ? 1 : 0.5 }]}
+                onPress={handleEditFolder}
+                disabled={!editFolderName.trim()}
+              >
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>Save Changes</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create Folder Modal */}
       <Modal visible={showCreateFolder} animationType="slide" transparent>
@@ -574,11 +737,13 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   listRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
   deleteIconBtn: {
-    width: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 48, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+  },
+  editIconBtn: {
+    width: 44, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+  },
+  actionBtn: {
+    width: ACTION_BTN_W, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
   },
   folderCard: {
     flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 14,

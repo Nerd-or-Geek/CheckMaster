@@ -12,6 +12,13 @@ export type ServerSnapshot = {
   updatedAt: number;
 };
 
+export type ServerUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  createdAt: number;
+};
+
 async function request(
   baseUrl: string,
   apiKey: string,
@@ -21,7 +28,7 @@ async function request(
   const url = `${normalizeServerBaseUrl(baseUrl)}${path}`;
   const extra = (init?.headers ?? {}) as Record<string, string>;
   const headers: Record<string, string> = {
-    'X-API-Key': apiKey.trim(),
+    'Authorization': `Bearer ${apiKey.trim()}`,
     ...extra,
   };
   if (init?.body != null) headers['Content-Type'] = 'application/json';
@@ -100,5 +107,44 @@ export async function pushToServer(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
+  }
+}
+
+export async function registerOnServer(
+  baseUrl: string,
+  apiKey: string,
+  username: string,
+  password: string,
+  displayName?: string,
+): Promise<{ ok: true; user: ServerUser } | { ok: false; error: string }> {
+  try {
+    const res = await request(normalizeServerBaseUrl(baseUrl), apiKey, '/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username: username.trim().toLowerCase(), password, displayName: displayName?.trim() || username.trim() }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.error || `Server returned ${res.status}` };
+    return { ok: true, user: j.user as ServerUser };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function loginOnServer(
+  baseUrl: string,
+  apiKey: string,
+  username: string,
+  password: string,
+): Promise<{ ok: true; user: ServerUser } | { ok: false; error: string }> {
+  try {
+    const res = await request(normalizeServerBaseUrl(baseUrl), apiKey, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.error || `Server returned ${res.status}` };
+    return { ok: true, user: j.user as ServerUser };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

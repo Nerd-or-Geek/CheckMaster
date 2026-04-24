@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { colors, categoryColors, spacing, borderRadius, typography } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { useResponsive } from '../../hooks/useResponsive';
-import { ChecklistItem, Section } from '../../services/mockData';
+import { ChecklistItem, Section, ItemStatus, DEFAULT_ITEM_STATUSES } from '../../services/mockData';
 import StatsView from '../../components/feature/StatsView';
 import ItemEditModal from '../../components/feature/ItemEditModal';
 import CSVImportModal from '../../components/feature/CSVImportModal';
@@ -19,7 +19,7 @@ export default function ChecklistScreen() {
   const {
     settings, viewMode, setViewMode,
     getActiveChecklist,
-    toggleItemCheck, deleteItem,
+    toggleItemCheck, setItemStatus, deleteItem,
     addSection, deleteSection, toggleSectionExpand, updateSection,
     updateChecklist,
   } = useApp();
@@ -37,6 +37,15 @@ export default function ChecklistScreen() {
   const [newSectionName, setNewSectionName] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [showStatusPicker, setShowStatusPicker] = useState<string | null>(null); // itemId
+  const [showAddStatus, setShowAddStatus] = useState(false);
+  const [newStatusLabel, setNewStatusLabel] = useState('');
+  const [newStatusColor, setNewStatusColor] = useState('#6B7280');
+  const [newStatusIsDone, setNewStatusIsDone] = useState(false);
+
+  const STATUS_COLORS = ['#6B7280','#F59E0B','#3B82F6','#10B981','#EF4444','#8B5CF6','#EC4899','#06B6D4'];
+
+  const activeStatuses = checklist?.settings.itemStatuses ?? [];
 
   if (!checklist) {
     return (
@@ -52,7 +61,11 @@ export default function ChecklistScreen() {
     );
   }
 
-  const completedCount = checklist.items.filter(i => i.checked).length;
+  const useStatuses = activeStatuses.length > 0;
+  const completedCount = checklist.items.filter(i => {
+    if (useStatuses && i.status) return activeStatuses.find(s => s.id === i.status)?.isDone ?? false;
+    return i.checked;
+  }).length;
   const totalCount = checklist.items.length;
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
@@ -90,12 +103,18 @@ export default function ChecklistScreen() {
     const hasNotes = checklist.settings.enableNotes && item.notes;
     const notesExpanded = expandedNotes.has(item.id);
 
+    // Status system
+    const currentStatus: ItemStatus | undefined = useStatuses
+      ? activeStatuses.find(s => s.id === (item.status ?? activeStatuses[0]?.id))
+      : undefined;
+    const isEffectivelyDone = currentStatus ? currentStatus.isDone : item.checked;
+
     return (
       <Animated.View key={item.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
         <Pressable
           style={[styles.itemCard, {
             backgroundColor: theme.surface,
-            borderColor: item.checked ? theme.success + '40' : theme.border,
+            borderColor: isEffectivelyDone ? theme.success + '40' : theme.border,
             borderLeftColor: catColor.dot,
             borderLeftWidth: 4,
             minHeight: isMobile ? Math.min(itemHeight, 140) : 80,
@@ -107,27 +126,50 @@ export default function ChecklistScreen() {
           }}
         >
           <View style={styles.itemRow}>
-        <Pressable
-          style={[styles.checkbox, {
-                backgroundColor: item.checked ? theme.success : 'transparent',
-                borderColor: item.checked ? theme.success : theme.textTertiary,
-                opacity: canCheckItems ? 1 : 0.55,
-              }]}
-              onPress={() => {
-                if (!canCheckItems) return;
-                Haptics.selectionAsync();
-                toggleItemCheck(checklist.id, item.id);
-              }}
-            >
-              {item.checked && <MaterialIcons name="check" size={16} color="#FFF" />}
-            </Pressable>
+            {useStatuses ? (
+              // Status cycling button
+              <Pressable
+                style={[styles.statusBtn, { borderColor: currentStatus?.color ?? '#6B7280', opacity: canCheckItems ? 1 : 0.55 }]}
+                onPress={() => {
+                  if (!canCheckItems) return;
+                  Haptics.selectionAsync();
+                  toggleItemCheck(checklist.id, item.id);
+                }}
+                onLongPress={() => {
+                  if (!canCheckItems) return;
+                  Haptics.selectionAsync();
+                  setShowStatusPicker(item.id);
+                }}
+              >
+                <View style={[styles.statusDot, { backgroundColor: currentStatus?.color ?? '#6B7280' }]} />
+                <Text style={{ color: currentStatus?.color ?? '#6B7280', fontSize: 10, fontWeight: '700', flexShrink: 1 }} numberOfLines={1}>
+                  {currentStatus?.label ?? activeStatuses[0]?.label ?? ''}
+                </Text>
+              </Pressable>
+            ) : (
+              // Plain checkbox
+              <Pressable
+                style={[styles.checkbox, {
+                  backgroundColor: item.checked ? theme.success : 'transparent',
+                  borderColor: item.checked ? theme.success : theme.textTertiary,
+                  opacity: canCheckItems ? 1 : 0.55,
+                }]}
+                onPress={() => {
+                  if (!canCheckItems) return;
+                  Haptics.selectionAsync();
+                  toggleItemCheck(checklist.id, item.id);
+                }}
+              >
+                {item.checked && <MaterialIcons name="check" size={16} color="#FFF" />}
+              </Pressable>
+            )}
 
             <View style={styles.itemContent}>
               <View style={styles.itemNameRow}>
                 <Text
                   style={[styles.itemName, {
-                    color: item.checked ? theme.textTertiary : theme.textPrimary,
-                    textDecorationLine: item.checked ? 'line-through' : 'none',
+                    color: isEffectivelyDone ? theme.textTertiary : theme.textPrimary,
+                    textDecorationLine: isEffectivelyDone ? 'line-through' : 'none',
                   }]}
                   numberOfLines={2}
                 >
@@ -526,6 +568,70 @@ export default function ChecklistScreen() {
                   <MaterialIcons name="chevron-right" size={22} color={theme.textTertiary} />
                 </Pressable>
               ) : null}
+
+              <Text style={[styles.settingSectionLabel, { color: theme.textSecondary }]}>ITEM STATUSES</Text>
+              {/* Enable / disable toggle */}
+              <Pressable
+                style={[styles.settingRow, { borderBottomColor: theme.borderLight }]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  const next = useStatuses ? [] : [...DEFAULT_ITEM_STATUSES];
+                  updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+                }}
+              >
+                <MaterialIcons name="label" size={22} color={theme.textSecondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Custom Statuses</Text>
+                  <Text style={{ color: theme.textTertiary, fontSize: 12 }}>
+                    {useStatuses ? 'Tap items to cycle through statuses' : 'Replace checkbox with custom states'}
+                  </Text>
+                </View>
+                <View style={[styles.toggleSwitch, { backgroundColor: useStatuses ? theme.primary : theme.backgroundSecondary }]}>
+                  <View style={[styles.toggleKnob, { transform: [{ translateX: useStatuses ? 20 : 2 }] }]} />
+                </View>
+              </Pressable>
+
+              {useStatuses && (
+                <View style={{ marginTop: 10, marginBottom: 4 }}>
+                  {activeStatuses.map(st => (
+                    <View key={st.id} style={[styles.statusRow, { borderColor: theme.border }]}>
+                      <View style={[styles.statusDot, { backgroundColor: st.color, width: 12, height: 12 }]} />
+                      <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>{st.label}</Text>
+                      {st.isDone && (
+                        <View style={[{ backgroundColor: theme.successBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, marginRight: 8 }]}>
+                          <Text style={{ color: theme.success, fontSize: 11, fontWeight: '700' }}>DONE</Text>
+                        </View>
+                      )}
+                      <Pressable
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          updateChecklist(checklist.id, {
+                            settings: {
+                              ...checklist.settings,
+                              itemStatuses: activeStatuses.filter(s => s.id !== st.id),
+                            },
+                          });
+                        }}
+                        hitSlop={8}
+                      >
+                        <MaterialIcons name="remove-circle-outline" size={20} color={theme.error} />
+                      </Pressable>
+                    </View>
+                  ))}
+                  <Pressable
+                    style={[styles.addStatusBtn, { borderColor: theme.primary }]}
+                    onPress={() => {
+                      setNewStatusLabel('');
+                      setNewStatusColor(STATUS_COLORS[activeStatuses.length % STATUS_COLORS.length]);
+                      setNewStatusIsDone(false);
+                      setShowAddStatus(true);
+                    }}
+                  >
+                    <MaterialIcons name="add" size={18} color={theme.primary} />
+                    <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Add Status</Text>
+                  </Pressable>
+                </View>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -542,6 +648,106 @@ export default function ChecklistScreen() {
         enableImages={checklist.settings.enableImages}
         defaultCategory={checklist.settings.defaultCategory}
       />
+
+      {/* Status picker (long-press on a status button) */}
+      <Modal visible={!!showStatusPicker} animationType="fade" transparent>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: theme.overlay }]} onPress={() => setShowStatusPicker(null)}>
+          <View style={[styles.miniModal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16, margin: 24, borderRadius: 20 }]}>
+            <View style={styles.miniModalHeader}>
+              <Text style={[styles.miniModalTitle, { color: theme.textPrimary }]}>Set Status</Text>
+              <Pressable onPress={() => setShowStatusPicker(null)} hitSlop={12}>
+                <MaterialIcons name="close" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <View style={{ paddingHorizontal: 20, gap: 8 }}>
+              {activeStatuses.map(st => {
+                const itemId = showStatusPicker!;
+                const item = checklist.items.find(i => i.id === itemId);
+                const isActive = (item?.status ?? activeStatuses[0]?.id) === st.id;
+                return (
+                  <Pressable
+                    key={st.id}
+                    style={[styles.statusPickerRow, {
+                      backgroundColor: isActive ? st.color + '22' : theme.backgroundSecondary,
+                      borderColor: isActive ? st.color : theme.border,
+                    }]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setItemStatus(checklist.id, itemId, st.id);
+                      setShowStatusPicker(null);
+                    }}
+                  >
+                    <View style={[styles.statusDot, { backgroundColor: st.color, width: 12, height: 12 }]} />
+                    <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600', flex: 1 }}>{st.label}</Text>
+                    {st.isDone && <Text style={{ color: theme.success, fontSize: 12, fontWeight: '700' }}>✓ Done</Text>}
+                    {isActive && <MaterialIcons name="check-circle" size={20} color={st.color} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Add new status mini-modal */}
+      <Modal visible={showAddStatus} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.miniModal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.miniModalHeader}>
+              <Text style={[styles.miniModalTitle, { color: theme.textPrimary }]}>New Status</Text>
+              <Pressable onPress={() => setShowAddStatus(false)} hitSlop={12}>
+                <MaterialIcons name="close" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <View style={{ paddingHorizontal: 20 }}>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]}
+                value={newStatusLabel}
+                onChangeText={setNewStatusLabel}
+                placeholder="Status label (e.g. Packed)"
+                placeholderTextColor={theme.textTertiary}
+                autoFocus
+              />
+              <Text style={[styles.miniStatusLabel, { color: theme.textSecondary }]}>COLOR</Text>
+              <View style={styles.colorRow}>
+                {STATUS_COLORS.map(c => (
+                  <Pressable
+                    key={c}
+                    style={[styles.colorDot, { backgroundColor: c, borderWidth: newStatusColor === c ? 3 : 0, borderColor: theme.textPrimary }]}
+                    onPress={() => setNewStatusColor(c)}
+                  />
+                ))}
+              </View>
+              <Pressable
+                style={[styles.settingRow, { borderBottomColor: theme.borderLight, marginBottom: 14 }]}
+                onPress={() => setNewStatusIsDone(v => !v)}
+              >
+                <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>Counts as completed</Text>
+                <View style={[styles.toggleSwitch, { backgroundColor: newStatusIsDone ? theme.primary : theme.backgroundSecondary }]}>
+                  <View style={[styles.toggleKnob, { transform: [{ translateX: newStatusIsDone ? 20 : 2 }] }]} />
+                </View>
+              </Pressable>
+              <Pressable
+                style={[styles.saveBtn, { backgroundColor: theme.primary, opacity: newStatusLabel.trim() ? 1 : 0.5 }]}
+                onPress={() => {
+                  if (!newStatusLabel.trim()) return;
+                  const id = newStatusLabel.trim().toLowerCase().replace(/\s+/g, '_') + '_' + Date.now().toString(36);
+                  updateChecklist(checklist.id, {
+                    settings: {
+                      ...checklist.settings,
+                      itemStatuses: [...activeStatuses, { id, label: newStatusLabel.trim(), color: newStatusColor, isDone: newStatusIsDone }],
+                    },
+                  });
+                  setShowAddStatus(false);
+                }}
+                disabled={!newStatusLabel.trim()}
+              >
+                <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>Add Status</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <CSVImportModal
         visible={showCSVImport}
@@ -647,4 +853,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', padding: 14,
     borderRadius: 12, borderWidth: 1, marginBottom: 20,
   },
+  // Status system
+  statusBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 4,
+    minWidth: 64, maxWidth: 90, marginTop: 2,
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, marginBottom: 6,
+  },
+  statusPickerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1,
+  },
+  addStatusBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10,
+    borderWidth: 1.5, borderStyle: 'dashed', marginTop: 4, marginBottom: 16,
+  },
+  colorRow: { flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' },
+  colorDot: { width: 32, height: 32, borderRadius: 16 },
+  miniStatusLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
 });

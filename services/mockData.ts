@@ -4,6 +4,8 @@ export interface ChecklistItem {
   description: string;
   category: string;
   checked: boolean;
+  /** ID of the current ItemStatus when the checklist uses custom statuses. */
+  status?: string;
   requiredQty: number;
   ownedQty: number;
   images: string[];
@@ -22,6 +24,23 @@ export interface Section {
 /** `owner` = full control; shared imports use view / check / edit. */
 export type ChecklistShareRole = 'owner' | 'view' | 'check' | 'edit';
 
+export interface ItemStatus {
+  id: string;
+  label: string;
+  /** Hex color used for the badge */
+  color: string;
+  /** Whether this status counts as "completed" in stats */
+  isDone: boolean;
+}
+
+/** Built-in preset for packing-style lists. Used as default when statuses are first enabled. */
+export const DEFAULT_ITEM_STATUSES: ItemStatus[] = [
+  { id: 'none',   label: 'None',        color: '#6B7280', isDone: false },
+  { id: 'need',   label: 'Need to get', color: '#F59E0B', isDone: false },
+  { id: 'have',   label: 'Have',        color: '#3B82F6', isDone: false },
+  { id: 'packed', label: 'Packed',      color: '#10B981', isDone: true  },
+];
+
 export interface Checklist {
   id: string;
   name: string;
@@ -39,6 +58,8 @@ export interface Checklist {
     enableSections: boolean;
     defaultCategory: string;
     chartTypeOverride: 'pie' | 'bar' | null;
+    /** When non-empty, the checklist uses custom statuses instead of simple checked/unchecked. */
+    itemStatuses?: ItemStatus[];
   };
   createdAt: number;
   updatedAt: number;
@@ -64,6 +85,10 @@ export interface AppSettings {
   serverUrl: string;
   /** API key printed by the server install script (header X-API-Key). */
   serverApiKey: string;
+  /** Username for the server account. */
+  serverUsername?: string;
+  /** Display name shown when sharing. */
+  serverDisplayName?: string;
 }
 
 export const defaultSettings: AppSettings = {
