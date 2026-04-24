@@ -254,37 +254,7 @@ export default function FoldersScreen() {
   const breadcrumb = getBreadcrumb();
 
   return (
-    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { paddingHorizontal: contentPadding }]}>
-        {navStack.length > 1 ? (
-          <Pressable style={styles.backBtn} onPress={navigateBack} hitSlop={8}>
-            <MaterialIcons name="arrow-back" size={24} color={theme.textPrimary} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 36 }} />
-        )}
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>
-            {currentFolder?.name || 'Folders'}
-          </Text>
-          {breadcrumb.length > 1 && (
-            <Text style={{ color: theme.textTertiary, fontSize: 12, marginTop: 2 }}>
-              {breadcrumb.join(' / ')}
-            </Text>
-          )}
-        </View>
-        <Pressable
-          style={[styles.addBtn, { backgroundColor: theme.primary }]}
-          onPress={() => {
-            Haptics.selectionAsync();
-            setShowCreateFolder(true);
-          }}
-          hitSlop={8}
-        >
-          <MaterialIcons name="create-new-folder" size={20} color="#FFF" />
-        </Pressable>
-      </View>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}> 
 
       {/* Summary bar at root */}
       {!currentFolderId && (

@@ -179,11 +179,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { paddingHorizontal: contentPadding }]}>
-        <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>
-          Settings
-        </Text>
-      </View>
+
 
       <ScrollView
         contentContainerStyle={{
