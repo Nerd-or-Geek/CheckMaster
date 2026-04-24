@@ -35,51 +35,13 @@ fi
 PORT_LINE=$(grep '^PORT=' data/.env 2>/dev/null | head -1 || echo "PORT=3847")
 PORT_VAL="${PORT_LINE#PORT=}"
 echo ""
-
-# --- Systemd service setup ---
-SERVICE_FILE="/etc/systemd/system/checkmaster-server.service"
-if [[ $EUID -ne 0 ]]; then
-  SUDO=sudo
-else
-  SUDO=""
-fi
-
-if [[ ! -f "$SERVICE_FILE" ]]; then
-  echo "Creating systemd service..."
-  $SUDO tee "$SERVICE_FILE" > /dev/null <<EOF
-[Unit]
-Description=CheckMaster Sync Server
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$SCRIPT_DIR
-ExecStart=$(command -v npm) start
-Restart=always
-User=$USER
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable checkmaster-server
-fi
-
-echo "Restarting CheckMaster server..."
-$SUDO systemctl restart checkmaster-server || true
-
-# --- Print admin portal link ---
-IP=$(hostname -I | awk '{print $1}')
-ADMIN_PORT=$PORT_VAL
 echo "================================================================"
-echo "  CheckMaster sync server is ready (install/update complete)."
-echo "  Service: checkmaster-server (systemd)"
-echo "  Listen: 0.0.0.0:${ADMIN_PORT:-3847}"
+echo "  CheckMaster sync server is ready."
+echo "  Start:  cd \"$SCRIPT_DIR\" && npm start"
+echo "  Listen: 0.0.0.0:${PORT_VAL:-3847}"
 echo ""
-echo "  Admin Portal: http://$IP:${ADMIN_PORT:-3847}/admin"
 echo "  In the app (Settings → Cloud Sync):"
-echo "    Server URL: http://$IP:${ADMIN_PORT:-3847}"
+echo "    Server URL: http://YOUR_SERVER_IP:${PORT_VAL:-3847}"
 echo "    API key:    (value printed by bootstrap above, or:) "
 grep '^API_KEY=' data/.env | sed 's/^/    /' || true
 echo "================================================================"
