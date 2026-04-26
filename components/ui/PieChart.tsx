@@ -84,15 +84,21 @@ export default function PieChart({ data, size = 180, innerRadius = 55, textColor
     );
   });
 
+  // Show top slice label in center for multi-status, or pct for simple completion
+  const isMultiSlice = data.filter(d => d.value > 0).length > 2;
   const completedSlice = data.find(d => d.label === 'Completed');
-  const pct = completedSlice ? Math.round((completedSlice.value / total) * 100) : 0;
+  const topSlice = data.reduce((best, s) => s.value > best.value ? s : best, data[0]);
+  const centerPct = completedSlice
+    ? Math.round((completedSlice.value / total) * 100)
+    : Math.round((topSlice.value / total) * 100);
+  const centerLabel = completedSlice ? 'done' : topSlice.label;
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
       <Svg width={size} height={size}>{paths}</Svg>
       <View style={[styles.centerLabel, { width: innerRadius * 2 - 8, height: innerRadius * 2 - 8 }]}>
-        <Text style={[styles.centerValue, { color: textColor }]}>{pct}%</Text>
-        <Text style={styles.centerCaption}>done</Text>
+        <Text style={[styles.centerValue, { color: textColor }]}>{centerPct}%</Text>
+        <Text style={styles.centerCaption} numberOfLines={1}>{centerLabel}</Text>
       </View>
     </View>
   );
@@ -102,5 +108,5 @@ const styles = StyleSheet.create({
   container: { alignItems: 'center', justifyContent: 'center' },
   centerLabel: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   centerValue: { fontSize: 28, fontWeight: '700' },
-  centerCaption: { fontSize: 12, fontWeight: '500', color: '#94A3B8', marginTop: -2 },
+  centerCaption: { fontSize: 11, fontWeight: '500', color: '#94A3B8', marginTop: -2 },
 });

@@ -6,12 +6,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut, Layout, SlideInLeft, SlideInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors, categoryColors, spacing, borderRadius, typography } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import { Folder, Checklist } from '../../services/mockData';
+import PageHeader from '../../components/layout/PageHeader';
 
 const FOLDER_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
 
@@ -251,9 +252,12 @@ export default function FoldersScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Breadcrumb / Back bar */}
-      {currentFolderId ? (
-        <View style={[styles.breadcrumbBar, { paddingHorizontal: contentPadding, borderBottomColor: theme.border }]}>
+      {/* Page Header */}
+      <PageHeader
+        title={currentFolderId ? (currentFolder?.name ?? 'Folder') : 'Folders'}
+        subtitle={currentFolderId ? `${currentChecklists.length} checklists` : `${rootFolders.length} folders \u00B7 ${totalChecklists} lists`}
+        icon="folder"
+        leftAction={currentFolderId ? (
           <Pressable
             style={[styles.backBtn, { backgroundColor: theme.backgroundSecondary }]}
             onPress={navigateBack}
@@ -261,16 +265,32 @@ export default function FoldersScreen() {
           >
             <MaterialIcons name="arrow-back" size={20} color={theme.textPrimary} />
           </Pressable>
+        ) : undefined}
+        rightAction={
+          <Pressable
+            style={[styles.headerActionBtn, { backgroundColor: theme.primaryBg }]}
+            onPress={() => { Haptics.selectionAsync(); setShowCreateFolder(true); }}
+            hitSlop={8}
+          >
+            <MaterialIcons name="create-new-folder" size={20} color={theme.primary} />
+          </Pressable>
+        }
+      />
+
+      {/* Breadcrumb trail when inside folders */}
+      {currentFolderId && breadcrumb.length > 1 ? (
+        <Animated.View entering={FadeIn.duration(200)} style={[styles.breadcrumbBar, { paddingHorizontal: contentPadding, borderBottomColor: theme.border }]}>
           <View style={styles.breadcrumbTrail}>
+            <Pressable onPress={() => setNavStack([null])}>
+              <MaterialIcons name="home" size={16} color={theme.textTertiary} />
+            </Pressable>
             {breadcrumb.map((seg, idx) => (
               <View key={idx} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {idx > 0 ? (
-                  <MaterialIcons name="chevron-right" size={16} color={theme.textTertiary} style={{ marginHorizontal: 2 }} />
-                ) : null}
+                <MaterialIcons name="chevron-right" size={16} color={theme.textTertiary} style={{ marginHorizontal: 2 }} />
                 <Text
                   style={{
                     color: idx === breadcrumb.length - 1 ? theme.textPrimary : theme.textTertiary,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: idx === breadcrumb.length - 1 ? '700' : '500',
                   }}
                   numberOfLines={1}
@@ -280,19 +300,12 @@ export default function FoldersScreen() {
               </View>
             ))}
           </View>
-          <Pressable
-            style={[styles.addBtn, { backgroundColor: theme.primaryBg }]}
-            onPress={() => { Haptics.selectionAsync(); setShowCreateFolder(true); }}
-            hitSlop={8}
-          >
-            <MaterialIcons name="create-new-folder" size={20} color={theme.primary} />
-          </Pressable>
-        </View>
+        </Animated.View>
       ) : null}
 
       {/* Summary bar at root */}
       {!currentFolderId ? (
-        <View style={[styles.summaryBar, { marginHorizontal: contentPadding, backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.duration(300)} style={[styles.summaryBar, { marginHorizontal: contentPadding, backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.summaryItem}>
             <Text style={[styles.summaryValue, { color: theme.primary }]}>{rootFolders.length}</Text>
             <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Folders</Text>
@@ -309,7 +322,7 @@ export default function FoldersScreen() {
             </Text>
             <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>Completed</Text>
           </View>
-        </View>
+        </Animated.View>
       ) : null}
 
       <ScrollView
@@ -323,11 +336,11 @@ export default function FoldersScreen() {
             <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>
               {currentFolderId ? 'SUBFOLDERS' : 'FOLDERS'}
             </Text>
-            {childFolders.map(folder => {
+            {childFolders.map((folder, idx) => {
               const subCount = getFolderChildren(folder.id).length;
               const clCount = getFolderChecklists(folder.id).length;
               return (
-                <Animated.View key={folder.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
+                <Animated.View key={folder.id} entering={FadeInDown.delay(idx * 50).duration(250)} layout={Layout.springify()}>
                   <RevealActionsRow
                     isMobile={isMobile}
                     isDesktop={isDesktop}
@@ -401,7 +414,7 @@ export default function FoldersScreen() {
             </View>
 
             {currentChecklists.length === 0 ? (
-              <View style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Animated.View entering={FadeIn.duration(300)} style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <MaterialIcons name="playlist-add" size={48} color={theme.textTertiary} />
                 <Text style={{ color: theme.textSecondary, fontSize: 15, marginTop: 8 }}>
                   No checklists yet
@@ -412,14 +425,14 @@ export default function FoldersScreen() {
                 >
                   <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>Create Checklist</Text>
                 </Pressable>
-              </View>
+              </Animated.View>
             ) : (
-              currentChecklists.map(cl => {
+              currentChecklists.map((cl, idx) => {
                 const completed = cl.items.filter(i => i.checked).length;
                 const total = cl.items.length;
                 const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                 return (
-                  <Animated.View key={cl.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
+                  <Animated.View key={cl.id} entering={FadeInDown.delay(idx * 60).duration(250)} layout={Layout.springify()}>
                     <RevealActionsRow
                       isMobile={isMobile}
                       isDesktop={isDesktop}
@@ -494,9 +507,9 @@ export default function FoldersScreen() {
           </View>
         ) : null}
 
-        {/* Root: no folders and add button */}
+        {/* Root: no folders */}
         {!currentFolderId && childFolders.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border, marginTop: 40 }]}>
+          <Animated.View entering={FadeIn.duration(400)} style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border, marginTop: 40 }]}>
             <MaterialIcons name="folder-open" size={56} color={theme.textTertiary} />
             <Text style={{ color: theme.textPrimary, fontSize: 18, fontWeight: '600', marginTop: 12 }}>
               No folders yet
@@ -510,18 +523,20 @@ export default function FoldersScreen() {
             >
               <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>Create Folder</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         ) : null}
 
         {/* Root: has folders, show add btn */}
         {!currentFolderId && childFolders.length > 0 ? (
-          <Pressable
-            style={[styles.addFolderFAB, { backgroundColor: theme.primary }]}
-            onPress={() => { Haptics.selectionAsync(); setShowCreateFolder(true); }}
-          >
-            <MaterialIcons name="create-new-folder" size={20} color="#FFF" />
-            <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>New Folder</Text>
-          </Pressable>
+          <Animated.View entering={FadeInDown.delay(childFolders.length * 50 + 100).duration(250)}>
+            <Pressable
+              style={[styles.addFolderFAB, { backgroundColor: theme.primary }]}
+              onPress={() => { Haptics.selectionAsync(); setShowCreateFolder(true); }}
+            >
+              <MaterialIcons name="create-new-folder" size={20} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>New Folder</Text>
+            </Pressable>
+          </Animated.View>
         ) : null}
       </ScrollView>
 
@@ -737,13 +752,12 @@ const styles = StyleSheet.create({
   breadcrumbBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    gap: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
   },
   breadcrumbTrail: { flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap' },
   backBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  addBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  headerActionBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   summaryBar: {
     flexDirection: 'row', borderRadius: 14, padding: 14, marginTop: 8, marginBottom: 8, borderWidth: 1,
   },

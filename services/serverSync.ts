@@ -148,3 +148,61 @@ export async function loginOnServer(
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/** Share a checklist with a specific user on the server */
+export async function shareWithUser(
+  baseUrl: string,
+  apiKey: string,
+  checklistId: string,
+  targetUsername: string,
+  grant: string,
+  encodedPayload: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await request(normalizeServerBaseUrl(baseUrl), apiKey, '/api/v1/share', {
+      method: 'POST',
+      body: JSON.stringify({
+        checklistId,
+        targetUsername: targetUsername.trim().toLowerCase(),
+        grant,
+        payload: encodedPayload,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.error || `Server returned ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Check for pending shares addressed to current user */
+export async function fetchPendingShares(
+  baseUrl: string,
+  apiKey: string,
+): Promise<{ ok: true; shares: { id: string; fromUser: string; grant: string; payload: string; createdAt: number }[] } | { ok: false; error: string }> {
+  try {
+    const res = await request(normalizeServerBaseUrl(baseUrl), apiKey, '/api/v1/share/pending', { method: 'GET' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.error || `Server returned ${res.status}` };
+    return { ok: true, shares: j.shares ?? [] };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Accept a pending share by ID */
+export async function acceptShare(
+  baseUrl: string,
+  apiKey: string,
+  shareId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await request(normalizeServerBaseUrl(baseUrl), apiKey, `/api/v1/share/${shareId}/accept`, { method: 'POST' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.error || `Server returned ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

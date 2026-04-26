@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeOut, Layout, SlideInRight } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut, Layout, SlideInRight } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors, categoryColors, spacing, borderRadius, typography } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
@@ -14,6 +14,7 @@ import StatsView from '../../components/feature/StatsView';
 import ItemEditModal from '../../components/feature/ItemEditModal';
 import CSVImportModal from '../../components/feature/CSVImportModal';
 import ShareChecklistModal from '../../components/feature/ShareChecklistModal';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function ChecklistScreen() {
   const {
@@ -50,6 +51,7 @@ export default function ChecklistScreen() {
   if (!checklist) {
     return (
       <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
+        <PageHeader title="Checklist" icon="checklist" />
         <View style={styles.emptyContainer}>
           <MaterialIcons name="checklist" size={64} color={theme.textTertiary} />
           <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No Checklist Selected</Text>
@@ -97,7 +99,7 @@ export default function ChecklistScreen() {
     setShowAddSection(false);
   };
 
-  const renderItem = (item: ChecklistItem) => {
+  const renderItem = (item: ChecklistItem, index: number) => {
     const catColor = categoryColors[item.category] || categoryColors.general;
     const isPartial = checklist.settings.enableQuantity && item.requiredQty > 0 && item.ownedQty > 0 && item.ownedQty < item.requiredQty;
     const hasNotes = checklist.settings.enableNotes && item.notes;
@@ -109,7 +111,7 @@ export default function ChecklistScreen() {
     const isEffectivelyDone = currentStatus ? currentStatus.isDone : item.checked;
 
     return (
-      <Animated.View key={item.id} entering={FadeIn.duration(200)} layout={Layout.springify()}>
+      <Animated.View key={item.id} entering={FadeInDown.delay(index * 30).duration(200)} layout={Layout.springify()}>
         <Pressable
           style={[styles.itemCard, {
             backgroundColor: theme.surface,
@@ -214,9 +216,9 @@ export default function ChecklistScreen() {
                 </Pressable>
               ) : null}
               {hasNotes && notesExpanded ? (
-                <View style={[styles.notesBox, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
+                <Animated.View entering={FadeIn.duration(200)} style={[styles.notesBox, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}>
                   <Text style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 18 }}>{item.notes}</Text>
-                </View>
+                </Animated.View>
               ) : null}
             </View>
 
@@ -243,12 +245,12 @@ export default function ChecklistScreen() {
   const renderSectionItems = (sectionId: string | null) => {
     return checklist.items
       .filter(i => i.sectionId === sectionId)
-      .map(item => renderItem(item));
+      .map((item, idx) => renderItem(item, idx));
   };
 
   const renderSections = () => {
     if (!checklist.settings.enableSections || checklist.sections.length === 0) {
-      return checklist.items.map(item => renderItem(item));
+      return checklist.items.map((item, idx) => renderItem(item, idx));
     }
 
     const unsectionedItems = checklist.items.filter(i => i.sectionId === null);
@@ -257,14 +259,17 @@ export default function ChecklistScreen() {
       <>
         {checklist.sections
           .sort((a, b) => a.order - b.order)
-          .map(section => {
+          .map((section, secIdx) => {
             const sectionItems = checklist.items.filter(i => i.sectionId === section.id);
-            const secCompleted = sectionItems.filter(i => i.checked).length;
+            const secCompleted = sectionItems.filter(i => {
+              if (useStatuses && i.status) return activeStatuses.find(s => s.id === i.status)?.isDone ?? false;
+              return i.checked;
+            }).length;
             const secTotal = sectionItems.length;
             const secPct = secTotal > 0 ? Math.round((secCompleted / secTotal) * 100) : 0;
 
             return (
-              <View key={section.id} style={{ marginBottom: 4 }}>
+              <Animated.View key={section.id} entering={FadeInDown.delay(secIdx * 60).duration(250)} style={{ marginBottom: 4 }}>
                 <Pressable
                   style={[styles.sectionHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={() => toggleSectionExpand(checklist.id, section.id)}
@@ -294,7 +299,7 @@ export default function ChecklistScreen() {
                   </Text>
                 </Pressable>
                 {section.expanded ? (
-                  <Animated.View entering={FadeIn.duration(150)}>
+                  <Animated.View entering={FadeIn.duration(200)}>
                     {sectionItems.length === 0 ? (
                       <View style={[styles.sectionEmpty, { borderColor: theme.border }]}>
                         <Text style={{ color: theme.textTertiary, fontSize: 13 }}>No items in this section</Text>
@@ -304,7 +309,7 @@ export default function ChecklistScreen() {
                     )}
                   </Animated.View>
                 ) : null}
-              </View>
+              </Animated.View>
             );
           })}
 
@@ -315,7 +320,7 @@ export default function ChecklistScreen() {
               <Text style={[styles.sectionName, { color: theme.textSecondary }]}>Unsorted</Text>
               <Text style={[styles.sectionCount, { color: theme.textTertiary }]}>{unsectionedItems.length}</Text>
             </View>
-            {unsectionedItems.map(item => renderItem(item))}
+            {unsectionedItems.map((item, idx) => renderItem(item, idx))}
           </View>
         ) : null}
       </>
@@ -324,42 +329,40 @@ export default function ChecklistScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { paddingHorizontal: contentPadding }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { color: theme.textPrimary }]} numberOfLines={1}>{checklist.name}</Text>
-          {checklist.description ? (
-            <Text style={{ color: theme.textSecondary, fontSize: 13, marginTop: 1 }} numberOfLines={1}>
-              {checklist.description}
-            </Text>
-          ) : null}
-        </View>
-        {canShare ? (
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); setShowShareModal(true); }}
-            hitSlop={8}
-            style={{ marginRight: 4 }}
-          >
-            <MaterialIcons name="share" size={22} color={theme.primary} />
-          </Pressable>
-        ) : null}
-        {canStructure ? (
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); setShowChecklistSettings(true); }}
-            hitSlop={8}
-          >
-            <MaterialIcons name="tune" size={22} color={theme.textSecondary} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 22 }} />
-        )}
-      </View>
+      {/* Page Header */}
+      <PageHeader
+        title={checklist.name}
+        subtitle={checklist.description || `${completedCount}/${totalCount} items`}
+        icon="checklist"
+        rightAction={
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            {canShare ? (
+              <Pressable
+                onPress={() => { Haptics.selectionAsync(); setShowShareModal(true); }}
+                hitSlop={8}
+                style={[styles.headerIconBtn, { backgroundColor: theme.primaryBg }]}
+              >
+                <MaterialIcons name="share" size={20} color={theme.primary} />
+              </Pressable>
+            ) : null}
+            {canStructure ? (
+              <Pressable
+                onPress={() => { Haptics.selectionAsync(); setShowChecklistSettings(true); }}
+                hitSlop={8}
+                style={[styles.headerIconBtn, { backgroundColor: theme.backgroundSecondary }]}
+              >
+                <MaterialIcons name="tune" size={20} color={theme.textSecondary} />
+              </Pressable>
+            ) : null}
+          </View>
+        }
+      />
 
       {shareBannerLabel ? (
-        <View style={[styles.shareBanner, { marginHorizontal: contentPadding, backgroundColor: theme.primaryBg, borderColor: theme.primary }]}>
+        <Animated.View entering={FadeIn.duration(200)} style={[styles.shareBanner, { marginHorizontal: contentPadding, backgroundColor: theme.primaryBg, borderColor: theme.primary }]}>
           <MaterialIcons name="info-outline" size={18} color={theme.primary} />
           <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600', flex: 1, marginLeft: 8 }}>{shareBannerLabel}</Text>
-        </View>
+        </Animated.View>
       ) : null}
 
       {/* Progress + View Toggle */}
@@ -380,6 +383,24 @@ export default function ChecklistScreen() {
             {completedCount}/{totalCount}
           </Text>
         </View>
+
+        {/* Status summary chips when custom statuses enabled */}
+        {useStatuses ? (
+          <Animated.View entering={FadeIn.duration(200)}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 6 }}>
+              {activeStatuses.map(st => {
+                const count = checklist.items.filter(i => (i.status ?? activeStatuses[0]?.id) === st.id).length;
+                return (
+                  <View key={st.id} style={[styles.statusChip, { backgroundColor: st.color + '18', borderColor: st.color + '40' }]}>
+                    <View style={[styles.statusChipDot, { backgroundColor: st.color }]} />
+                    <Text style={{ color: st.color, fontSize: 11, fontWeight: '700' }}>{st.label}: {count}</Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </Animated.View>
+        ) : null}
+
         <View style={[styles.toggleRow, { backgroundColor: theme.backgroundSecondary }]}>
           {(['interactive', 'stats'] as const).map(mode => (
             <Pressable
@@ -438,7 +459,7 @@ export default function ChecklistScreen() {
             showsVerticalScrollIndicator={false}
           >
             {totalCount === 0 ? (
-              <View style={[styles.emptyState, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Animated.View entering={FadeIn.duration(300)} style={[styles.emptyState, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <MaterialIcons name="add-task" size={48} color={theme.textTertiary} />
                 <Text style={[styles.emptyTitle, { color: theme.textPrimary, fontSize: 16 }]}>
                   Start adding items
@@ -446,7 +467,7 @@ export default function ChecklistScreen() {
                 <Text style={{ color: theme.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
                   Tap "Add Item" above or import from CSV
                 </Text>
-              </View>
+              </Animated.View>
             ) : (
               renderSections()
             )}
@@ -761,7 +782,7 @@ export default function ChecklistScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 8 },
+  headerIconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   shareBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -770,13 +791,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     marginBottom: 8,
+    marginTop: 4,
   },
-  headerTitle: { fontSize: 20, fontWeight: '700' },
-  progressBar: { marginBottom: 8 },
+  progressBar: { marginBottom: 8, marginTop: 4 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pctBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   pBar: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
   pBarFill: { height: 6, borderRadius: 3 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
+  statusChipDot: { width: 6, height: 6, borderRadius: 3 },
   toggleRow: { flexDirection: 'row', gap: 4, marginTop: 10, borderRadius: 10, padding: 3 },
   toggleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRadius: 8 },
   actionBar: { flexDirection: 'row', gap: 8, paddingVertical: 8 },

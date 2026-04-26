@@ -62,3 +62,16 @@ export function decodeChecklistShare(text: string): SharePayloadV1 | null {
     return null;
   }
 }
+
+/** Generate a compact shareable text representation (non-encoded, human-readable) */
+export function generateShareSummary(grant: ShareGrant, checklist: Checklist): string {
+  const grantLabel = grant === 'view' ? 'View only' : grant === 'check' ? 'Check items' : 'Full edit';
+  const lines: string[] = [
+    `Gledhill Lists: "${checklist.name}"`,
+    `Permission: ${grantLabel}`,
+    '',
+    'How to import: In Folders, open a folder, tap Import, and paste this entire message.',
+    '',
+  ];
+  return lines.join('\n');
+}

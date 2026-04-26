@@ -13,11 +13,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors, spacing, borderRadius, typography } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import { APP_NAME, APP_VERSION } from '../../constants/config';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function SettingsScreen() {
   const {
@@ -122,9 +124,7 @@ export default function SettingsScreen() {
       return;
     }
     setServerBusy(true);
-    // Temporarily save so testSyncServer uses these values
     updateSettings({ serverUrl: connectUrl.trim(), serverApiKey: connectKey.trim() });
-    // Small delay to allow state to propagate
     await new Promise(r => setTimeout(r, 100));
     const r = await testSyncServer();
     setServerBusy(false);
@@ -210,6 +210,13 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Page Header */}
+      <PageHeader
+        title="Settings"
+        subtitle={`v${APP_VERSION}`}
+        icon="settings"
+      />
+
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: contentPadding,
@@ -219,7 +226,7 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Stats */}
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(50).duration(300)} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
               <Text style={[styles.statValue, { color: theme.primary }]}>{folders.length}</Text>
@@ -241,11 +248,11 @@ export default function SettingsScreen() {
               <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Total</Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Appearance */}
         <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>APPEARANCE</Text>
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(100).duration(300)} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.settingRow}>
             <MaterialIcons name="brightness-auto" size={20} color={theme.textSecondary} />
             <View style={{ flex: 1, marginLeft: 12 }}>
@@ -290,11 +297,11 @@ export default function SettingsScreen() {
               )}
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Storage & Sync */}
         <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>STORAGE & SYNC</Text>
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(150).duration(300)} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={{ color: theme.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
             Sync your lists between devices or share with friends, family, and coworkers.
           </Text>
@@ -373,7 +380,7 @@ export default function SettingsScreen() {
             <MaterialIcons name="cloud" size={24} color={storageMode === 'cloud' ? theme.primary : theme.textSecondary} />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={[styles.storageTitle, { color: theme.textPrimary }]}>Gledhill Cloud</Text>
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Paid — automatic sync, no setup</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Paid \u2014 automatic sync, no setup</Text>
             </View>
             <View style={[styles.comingSoonBadge, { backgroundColor: theme.warningBg }]}>
               <Text style={{ color: theme.warning, fontSize: 10, fontWeight: '700' }}>SOON</Text>
@@ -381,8 +388,8 @@ export default function SettingsScreen() {
           </Pressable>
 
           {/* Server actions when connected */}
-          {isConnected && storageMode === 'server' && (
-            <View style={{ marginTop: 12, gap: 8 }}>
+          {isConnected && storageMode === 'server' ? (
+            <Animated.View entering={FadeIn.duration(250)} style={{ marginTop: 12, gap: 8 }}>
               {hasProfile ? (
                 <View style={[styles.connectedBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
                   <MaterialIcons name="check-circle" size={18} color={theme.success} />
@@ -436,13 +443,13 @@ export default function SettingsScreen() {
                 <MaterialIcons name="link-off" size={16} color={theme.error} />
                 <Text style={{ color: theme.error, fontSize: 13, fontWeight: '600' }}>Disconnect Server</Text>
               </Pressable>
-            </View>
-          )}
-        </View>
+            </Animated.View>
+          ) : null}
+        </Animated.View>
 
         {/* Privacy & Data */}
         <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>PRIVACY & DATA</Text>
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(200).duration(300)} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Pressable
             style={[styles.dangerRow]}
             onPress={handleDeleteAllData}
@@ -456,11 +463,11 @@ export default function SettingsScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={22} color={theme.textTertiary} />
           </Pressable>
-        </View>
+        </Animated.View>
 
         {/* About */}
         <Text style={[styles.sectionLabel, { color: theme.textTertiary }]}>ABOUT</Text>
-        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(250).duration(300)} style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <View style={styles.aboutRow}>
             <MaterialIcons name="checklist-rtl" size={20} color={theme.primary} />
             <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600', marginLeft: 12, flex: 1 }}>
@@ -468,7 +475,7 @@ export default function SettingsScreen() {
             </Text>
             <Text style={{ color: theme.textTertiary, fontSize: 13 }}>v{APP_VERSION}</Text>
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
 
       {/* Connect to Server Modal */}

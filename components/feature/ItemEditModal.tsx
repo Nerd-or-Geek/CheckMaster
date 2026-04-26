@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, categoryColors, spacing, borderRadius, typography } from '../../constants/theme';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { colors, categoryColors } from '../../constants/theme';
 import { DEFAULT_CATEGORIES } from '../../constants/config';
 import { useApp } from '../../contexts/AppContext';
 import { ChecklistItem, Section } from '../../services/mockData';
@@ -26,7 +27,7 @@ export default function ItemEditModal({
   visible, onClose, checklistId, item, sections,
   enableQuantity, enableNotes, enableImages, defaultCategory,
 }: ItemEditModalProps) {
-  const { settings, isDark, addItem, updateItem } = useApp();
+  const { isDark, addItem, updateItem } = useApp();
   const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
 
@@ -91,11 +92,18 @@ export default function ItemEditModal({
             paddingBottom: insets.bottom + 16,
           }]}>
             <View style={styles.header}>
+              <View style={[styles.headerIconWrap, { backgroundColor: theme.primaryBg }]}>
+                <MaterialIcons name={item ? 'edit' : 'add-circle-outline'} size={20} color={theme.primary} />
+              </View>
               <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>
                 {item ? 'Edit Item' : 'Add Item'}
               </Text>
-              <Pressable onPress={onClose} hitSlop={12}>
-                <MaterialIcons name="close" size={24} color={theme.textSecondary} />
+              <Pressable
+                onPress={onClose}
+                hitSlop={12}
+                style={[styles.closeBtn, { backgroundColor: theme.backgroundSecondary }]}
+              >
+                <MaterialIcons name="close" size={20} color={theme.textSecondary} />
               </Pressable>
             </View>
 
@@ -251,10 +259,15 @@ const styles = StyleSheet.create({
   modalWrap: { maxHeight: '92%' },
   modal: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '100%' },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, gap: 10,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerIconWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '700', flex: 1 },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 20 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
   input: {
