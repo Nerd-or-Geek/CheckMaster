@@ -79,9 +79,29 @@ function newId() {
   return crypto.randomBytes(12).toString('hex');
 }
 
+
+// In-memory API call log (last 100 calls)
+const apiCallLog = [];
+function logApiCall(req, res, next) {
+  const start = Date.now();
+  res.on('finish', () => {
+    apiCallLog.push({
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      time: new Date().toISOString(),
+      ms: Date.now() - start,
+      ip: req.ip || req.connection?.remoteAddress || '',
+    });
+    if (apiCallLog.length > 100) apiCallLog.shift();
+  });
+  next();
+}
+
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '20mb' }));
+app.use(logApiCall);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'checkmaster-sync', version: '1' });
@@ -355,75 +375,118 @@ function adminAuth(req, res, next) {
 }
 
 app.get('/admin', (req, res) => {
+  const state = readState();
+  const userCount = (state.users || []).length;
+  const checklistCount = (state.checklists || []).length;
+  const folderCount = (state.folders || []).length;
+  const shareCount = (state.shares || []).length;
   res.set('Content-Type', 'text/html');
   res.send(`
     <!DOCTYPE html>
-    <html lang=\"en\">
+    <html lang="en">
     <head>
-      <meta charset=\"UTF-8\" />
-      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>CheckMaster Admin</title>
       <style>
-        body { font-family: system-ui,sans-serif; background: #f8fafc; color: #222; margin: 0; }
-        .container { max-width: 900px; margin: 32px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px #0001; padding: 32px; }
-        h1 { font-size: 2rem; margin-bottom: 0.5em; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 2em; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; color: #222; margin: 0; }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar { width: 220px; background: #1e293b; color: #fff; padding: 32px 0 0 0; display: flex; flex-direction: column; align-items: center; }
+        .sidebar h1 { font-size: 1.5rem; margin-bottom: 2em; font-weight: 800; letter-spacing: 1px; }
+        .sidebar nav { width: 100%; }
+        .sidebar nav a { display: block; color: #cbd5e1; text-decoration: none; padding: 12px 32px; font-size: 1.1rem; border-left: 4px solid transparent; transition: background 0.2s, border-color 0.2s; }
+        .sidebar nav a.active, .sidebar nav a:hover { background: #334155; color: #fff; border-left: 4px solid #3b82f6; }
+        .main { flex: 1; padding: 40px 5vw 40px 5vw; background: #f8fafc; }
+        .cards { display: flex; gap: 24px; margin-bottom: 32px; }
+        .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px #0001; padding: 24px 32px; flex: 1; display: flex; flex-direction: column; align-items: center; }
+        .card h2 { margin: 0 0 8px 0; font-size: 1.1rem; color: #64748b; font-weight: 700; }
+        .card .big { font-size: 2.2rem; font-weight: 800; color: #3b82f6; }
+        .section { margin-bottom: 36px; }
+        .section h2 { font-size: 1.3rem; margin-bottom: 12px; color: #1e293b; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 2em; background: #fff; }
         th, td { border: 1px solid #e5e7eb; padding: 8px 12px; }
         th { background: #f1f5f9; }
         tr:nth-child(even) { background: #f9fafb; }
         .actions button { margin-right: 8px; }
         .api-key { font-family: monospace; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+        .apilog-table { font-size: 0.97rem; }
+        .apilog-table th, .apilog-table td { padding: 6px 8px; }
+        .apilog-table th { background: #e0e7ef; }
+        .apilog-table tr:nth-child(even) { background: #f3f6fa; }
+        .apilog-status-2 { color: #22c55e; font-weight: 700; }
+        .apilog-status-4, .apilog-status-5 { color: #ef4444; font-weight: 700; }
+        @media (max-width: 900px) {
+          .cards { flex-direction: column; gap: 16px; }
+          .main { padding: 24px 2vw; }
+          .sidebar { width: 100px; padding: 16px 0 0 0; }
+          .sidebar nav a { font-size: 0.95rem; padding: 10px 10px; }
+        }
       </style>
     </head>
     <body>
-      <div class=\"container\">
-        <h1>CheckMaster Admin</h1>
-        <div id=\"login\" style=\"display:none;\">
-          <h2>Admin Login</h2>
-          <input id=\"pw\" type=\"password\" placeholder=\"Admin password\" />
-          <button onclick=\"login()\">Login</button>
-        </div>
-        <div id=\"main\" style=\"display:none;\">
-          <h2>Users</h2>
-          <table id=\"users\"><thead><tr><th>ID</th><th>Username</th><th>Display Name</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table>
-          <h2>API Keys</h2>
-          <div id=\"api-keys\"></div>
-          <input id=\"new-key\" placeholder=\"New API key\" /> <button onclick=\"addKey()\">Add Key</button>
-          <h2>All Data</h2>
-          <pre id=\"alldata\" style=\"max-height:300px;overflow:auto;background:#f1f5f9;padding:12px;border-radius:8px;\"></pre>
-        </div>
+      <div class="layout">
+        <aside class="sidebar">
+          <h1>CheckMaster</h1>
+          <nav>
+            <a href="#dashboard" class="active">Dashboard</a>
+            <a href="#users">Users</a>
+            <a href="#apikeys">API Keys</a>
+            <a href="#data">Data</a>
+            <a href="#apilog">API Log</a>
+          </nav>
+        </aside>
+        <main class="main">
+          <div class="cards">
+            <div class="card"><h2>Users</h2><div class="big" id="stat-users">${userCount}</div></div>
+            <div class="card"><h2>Checklists</h2><div class="big" id="stat-checklists">${checklistCount}</div></div>
+            <div class="card"><h2>Folders</h2><div class="big" id="stat-folders">${folderCount}</div></div>
+            <div class="card"><h2>Shares</h2><div class="big" id="stat-shares">${shareCount}</div></div>
+          </div>
+          <div class="section" id="dashboard">
+            <h2>API Call Log</h2>
+            <table class="apilog-table" id="apilog"><thead><tr><th>Time</th><th>IP</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th></tr></thead><tbody></tbody></table>
+          </div>
+          <div class="section" id="users">
+            <h2>Users</h2>
+            <table id="users-table"><thead><tr><th>ID</th><th>Username</th><th>Display Name</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table>
+          </div>
+          <div class="section" id="apikeys">
+            <h2>API Keys</h2>
+            <div id="api-keys"></div>
+            <input id="new-key" placeholder="New API key" /> <button onclick="addKey()">Add Key</button>
+          </div>
+          <div class="section" id="data">
+            <h2>All Data</h2>
+            <pre id="alldata" style="max-height:300px;overflow:auto;background:#f1f5f9;padding:12px;border-radius:8px;"></pre>
+          </div>
+        </main>
       </div>
       <script>
         let token = localStorage.getItem('admin_token') || '';
         function login() {
-          const pw = document.getElementById('pw').value;
+          const pw = prompt('Admin password:');
           fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + pw } })
             .then(r => r.ok ? r.json() : Promise.reject()).then(() => {
-              token = pw; localStorage.setItem('admin_token', pw); showMain();
+              token = pw; localStorage.setItem('admin_token', pw); loadAll();
             }).catch(() => alert('Wrong password'));
-        }
-        function showMain() {
-          document.getElementById('login').style.display = 'none';
-          document.getElementById('main').style.display = '';
-          loadUsers(); loadApiKeys(); loadData();
-        }
-        function showLogin() {
-          document.getElementById('main').style.display = 'none';
-          document.getElementById('login').style.display = '';
         }
         function api(path, opts={}) {
           opts.headers = opts.headers || {}; opts.headers.Authorization = 'Bearer ' + token;
           return fetch(path, opts).then(r => r.json());
         }
+        function loadAll() {
+          loadUsers(); loadApiKeys(); loadData(); loadApiLog();
+        }
         function loadUsers() {
           api('/api/admin/users').then(d => {
-            const tb = document.querySelector('#users tbody');
+            const tb = document.querySelector('#users-table tbody');
             tb.innerHTML = '';
-            d.users.forEach(u => {
+            (d.users||[]).forEach(u => {
               const tr = document.createElement('tr');
               tr.innerHTML = '<td>' + u.id + '</td><td>' + u.username + '</td><td>' + u.displayName + '</td><td>' + new Date(u.createdAt).toLocaleString() + '</td><td class="actions"><button onclick="editUser(\'' + u.id + '\')">Edit</button><button onclick="delUser(\'' + u.id + '\')">Delete</button></td>';
               tb.appendChild(tr);
             });
+            document.getElementById('stat-users').textContent = (d.users||[]).length;
           });
         }
         function editUser(id) { const name = prompt('New display name:'); if (!name) return; api('/api/admin/users/' + id, { method:'PUT', body:JSON.stringify({ displayName:name }), headers:{'Content-Type':'application/json'} }).then(loadUsers); }
@@ -431,18 +494,36 @@ app.get('/admin', (req, res) => {
         function loadApiKeys() {
           api('/api/admin/apikeys').then(d => {
             const div = document.getElementById('api-keys');
-            div.innerHTML = d.keys.map(function(k) { return '<span class="api-key">' + k + '</span> <button onclick="delKey(\'' + k + '\')">Delete</button>'; }).join('<br>');
+            div.innerHTML = (d.keys||[]).map(function(k) { return '<span class="api-key">' + k + '</span> <button onclick="delKey(\'' + k + '\')">Delete</button>'; }).join('<br>');
           });
         }
         function addKey() { const k = document.getElementById('new-key').value.trim(); if (!k) return; api('/api/admin/apikeys', { method:'POST', body:JSON.stringify({ key:k }), headers:{'Content-Type':'application/json'} }).then(loadApiKeys); }
         function delKey(k) { if (!confirm('Delete key?')) return; api('/api/admin/apikeys/' + k, { method:'DELETE' }).then(loadApiKeys); }
         function loadData() { api('/api/admin/alldata').then(d => { document.getElementById('alldata').textContent = JSON.stringify(d, null, 2); }); }
+        function loadApiLog() {
+          fetch('/api/admin/apilog', { headers: { Authorization: 'Bearer ' + token } })
+            .then(r => r.json())
+            .then(d => {
+              const tb = document.querySelector('#apilog tbody');
+              tb.innerHTML = '';
+              (d.log||[]).slice().reverse().forEach(l => {
+                const statusClass = l.status >= 500 ? 'apilog-status-5' : l.status >= 400 ? 'apilog-status-4' : l.status >= 200 ? 'apilog-status-2' : '';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${l.time.replace('T',' ').slice(0,19)}</td><td>${l.ip}</td><td>${l.method}</td><td>${l.path}</td><td class='${statusClass}'>${l.status}</td><td>${l.ms}</td>`;
+                tb.appendChild(tr);
+              });
+            });
+        }
         // Try auto-login
-        fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? showMain() : showLogin());
+        fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? loadAll() : login());
       </script>
     </body>
     </html>
   `);
+});
+// API for admin dashboard to get API call log
+app.get('/api/admin/apilog', adminAuth, (_req, res) => {
+  res.json({ log: apiCallLog });
 });
 
 // ── Admin API ───────────────────────────────────────────────────────────────
