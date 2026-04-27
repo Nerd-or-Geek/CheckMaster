@@ -380,45 +380,103 @@ app.get('/admin', (req, res) => {
   const checklistCount = (state.checklists || []).length;
   const folderCount = (state.folders || []).length;
   const shareCount = (state.shares || []).length;
-  res.set('Content-Type', 'text/html');
-  res.send(`<!DOCTYPE html>
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const serverUrl = `${proto}://${req.get('host')}`;
+
+  const adminCss = `body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; color: #222; margin: 0; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 220px; background: #1e293b; color: #fff; padding: 32px 0 0 0; display: flex; flex-direction: column; align-items: center; }
+.sidebar h1 { font-size: 1.5rem; margin-bottom: 2rem; font-weight: 800; letter-spacing: 1px; }
+.sidebar nav { width: 100%; }
+.sidebar nav a { display: block; color: #cbd5e1; text-decoration: none; padding: 12px 32px; font-size: 1.05rem; border-left: 4px solid transparent; transition: background 0.2s, border-color 0.2s; }
+.sidebar nav a.active, .sidebar nav a:hover { background: #334155; color: #fff; border-left: 4px solid #3b82f6; }
+.main { flex: 1; padding: 32px 4vw; }
+.cards { display: flex; gap: 24px; margin-bottom: 32px; flex-wrap: wrap; }
+.card { background: #fff; border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,0.08); padding: 24px; flex: 1 1 160px; min-width: 180px; }
+.card h2 { margin: 0 0 10px 0; font-size: 1rem; color: #475569; font-weight: 700; }
+.big { font-size: 2rem; font-weight: 800; color: #2563eb; }
+.section { margin-bottom: 32px; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 6px 20px rgba(15,23,42,0.04); }
+.section h2 { margin-top: 0; font-size: 1.2rem; color: #0f172a; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+th, td { border: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }
+th { background: #f8fafc; }
+tr:nth-child(even) { background: #f8fafc; }
+.actions button { margin-right: 8px; }
+.api-key { font-family: monospace; background: #f1f5f9; padding: 4px 8px; border-radius: 6px; }
+textarea { width: 100%; min-height: 180px; font-family: monospace; font-size: 0.95rem; margin-top: 12px; }
+input { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+button { padding: 10px 14px; border: none; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
+button:hover { background: #1d4ed8; }
+@media (max-width: 900px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; padding: 24px 16px 0; }
+  .main { padding: 24px 16px; }
+  .sidebar nav a { padding: 12px 18px; }
+}`;
+
+  const adminJs = `let token = localStorage.getItem('admin_token') || '';
+function login() {
+  const pw = prompt('Admin password:');
+  fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + pw } })
+    .then(r => r.ok ? r.json() : Promise.reject()).then(() => {
+      token = pw; localStorage.setItem('admin_token', pw); loadAll();
+    }).catch(() => alert('Wrong password'));
+}
+function api(path, opts = {}) {
+  opts.headers = opts.headers || {};
+  opts.headers.Authorization = 'Bearer ' + token;
+  return fetch(path, opts).then(r => r.json());
+}
+function showTab(tab) {
+  ['dashboard','users','apikeys','data','apilog'].forEach(t => {
+    const section = document.getElementById(t + '-section');
+    if (section) section.style.display = (t === tab) ? 'block' : 'none';
+  });
+  const cards = document.getElementById('dashboard-cards');
+  if (cards) cards.style.display = tab === 'dashboard' ? 'flex' : 'none';
+  document.querySelectorAll('#tabnav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
+  });
+}
+function loadAll() {
+  loadUsers(); loadApiKeys(); loadData(); loadApiLog();
+  document.getElementById('site-url').textContent = '${serverUrl}';
+}
+function loadUsers() {
+  api('/api/admin/users').then(d => {
+    const tb = document.querySelector('#users-table tbody');
+    tb.innerHTML = '';
+    (d.users || []).forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + u.id + '</td><td>' + u.username + '</td><td>' + u.displayName + '</td><td>' + new Date(u.createdAt).toLocaleString() + '</td><td class="actions"><button onclick="editUser(\'' + u.id + '\')">Edit</button><button onclick="delUser(\'' + u.id + '\')">Delete</button></td>';
+      tb.appendChild(tr);
+    });
+    document.getElementById('stat-users').textContent = (d.users || []).length;
+  });
+}
+function editUser(id) { const name = prompt('New display name:'); if (!name) return; api('/api/admin/users/' + id, { method: 'PUT', body: JSON.stringify({ displayName: name }), headers: { 'Content-Type': 'application/json' } }).then(loadUsers); }
+function delUser(id) { if (!confirm('Delete user?')) return; api('/api/admin/users/' + id, { method: 'DELETE' }).then(loadUsers); }
+function loadApiKeys() {
+  api('/api/admin/apikeys').then(d => {
+    document.getElementById('api-keys').innerHTML = (d.keys || []).map(k => '<span class="api-key">' + k + '</span> <button onclick="delKey(\'' + k + '\')">Delete</button>').join('<br>');
+  });
+}
+function addKey() { const k = document.getElementById('new-key').value.trim(); if (!k) return; api('/api/admin/apikeys', { method: 'POST', body: JSON.stringify({ key: k }), headers: { 'Content-Type': 'application/json' } }).then(loadApiKeys); }
+function delKey(k) { if (!confirm('Delete key?')) return; api('/api/admin/apikeys/' + encodeURIComponent(k), { method: 'DELETE' }).then(loadApiKeys); }
+function loadData() { api('/api/admin/alldata').then(d => { document.getElementById('alldata').textContent = JSON.stringify(d, null, 2); }); }
+function showDataEdit() { api('/api/admin/alldata').then(d => { document.getElementById('data-edit-box').value = JSON.stringify(d, null, 2); document.getElementById('data-edit').style.display = 'block'; }); }
+function hideDataEdit() { document.getElementById('data-edit').style.display = 'none'; }
+function saveDataEdit() { const val = document.getElementById('data-edit-box').value; try { const obj = JSON.parse(val); api('/api/admin/alldata', { method: 'PUT', body: JSON.stringify(obj), headers: { 'Content-Type': 'application/json' } }).then(() => { hideDataEdit(); loadData(); }); } catch (e) { alert('Invalid JSON: ' + e); } }
+function loadApiLog() { api('/api/admin/apilog').then(d => { const tb = document.querySelector('#apilog tbody'); tb.innerHTML = ''; (d.log || []).slice().reverse().forEach(l => { const statusClass = l.status >= 500 ? 'apilog-status-5' : l.status >= 400 ? 'apilog-status-4' : l.status >= 200 ? 'apilog-status-2' : ''; const tr = document.createElement('tr'); tr.innerHTML = '<td>' + l.time.replace('T',' ').slice(0,19) + '</td><td>' + l.ip + '</td><td>' + l.method + '</td><td>' + l.path + '</td><td class="' + statusClass + '">' + l.status + '</td><td>' + l.ms + '</td>'; tb.appendChild(tr); }); }); }
+fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? (showTab('dashboard'), loadAll()) : login());`;
+
+  const adminHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CheckMaster Admin</title>
-  <style>
-    body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; color: #222; margin: 0; }
-    .layout { display: flex; min-height: 100vh; }
-    .sidebar { width: 220px; background: #1e293b; color: #fff; padding: 32px 0 0 0; display: flex; flex-direction: column; align-items: center; }
-    .sidebar h1 { font-size: 1.5rem; margin-bottom: 2rem; font-weight: 800; letter-spacing: 1px; }
-    .sidebar nav { width: 100%; }
-    .sidebar nav a { display: block; color: #cbd5e1; text-decoration: none; padding: 12px 32px; font-size: 1.05rem; border-left: 4px solid transparent; transition: background 0.2s, border-color 0.2s; }
-    .sidebar nav a.active, .sidebar nav a:hover { background: #334155; color: #fff; border-left: 4px solid #3b82f6; }
-    .main { flex: 1; padding: 32px 4vw; }
-    .cards { display: flex; gap: 24px; margin-bottom: 32px; flex-wrap: wrap; }
-    .card { background: #fff; border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,0.08); padding: 24px; flex: 1 1 160px; min-width: 180px; }
-    .card h2 { margin: 0 0 10px 0; font-size: 1rem; color: #475569; font-weight: 700; }
-    .big { font-size: 2rem; font-weight: 800; color: #2563eb; }
-    .section { margin-bottom: 32px; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 6px 20px rgba(15,23,42,0.04); }
-    .section h2 { margin-top: 0; font-size: 1.2rem; color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th, td { border: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }
-    th { background: #f8fafc; }
-    tr:nth-child(even) { background: #f8fafc; }
-    .actions button { margin-right: 8px; }
-    .api-key { font-family: monospace; background: #f1f5f9; padding: 4px 8px; border-radius: 6px; }
-    textarea { width: 100%; min-height: 180px; font-family: monospace; font-size: 0.95rem; margin-top: 12px; }
-    input { padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
-    button { padding: 10px 14px; border: none; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
-    button:hover { background: #1d4ed8; }
-    @media (max-width: 900px) {
-      .layout { flex-direction: column; }
-      .sidebar { width: 100%; padding: 24px 16px 0; }
-      .main { padding: 24px 16px; }
-      .sidebar nav a { padding: 12px 18px; }
-    }
-  </style>
+  <style>${adminCss}</style>
 </head>
 <body>
   <div class="layout">
@@ -441,7 +499,7 @@ app.get('/admin', (req, res) => {
       </div>
       <div class="section" id="dashboard-section">
         <h2>Server Info</h2>
-        <div>Site URL: <span class="api-key" id="site-url"></span></div>
+        <div>Site URL: <span class="api-key" id="site-url">${serverUrl}</span></div>
         <div>API Key: <span class="api-key">${API_KEY}</span></div>
       </div>
       <div class="section" id="users-section" style="display:none">
@@ -468,66 +526,12 @@ app.get('/admin', (req, res) => {
       </div>
     </main>
   </div>
-  <script>
-    let token = localStorage.getItem('admin_token') || '';
-    function login() {
-      const pw = prompt('Admin password:');
-      fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + pw } })
-        .then(r => r.ok ? r.json() : Promise.reject()).then(() => {
-          token = pw; localStorage.setItem('admin_token', pw); loadAll();
-        }).catch(() => alert('Wrong password'));
-    }
-    function api(path, opts = {}) {
-      opts.headers = opts.headers || {};
-      opts.headers.Authorization = 'Bearer ' + token;
-      return fetch(path, opts).then(r => r.json());
-    }
-    function showTab(tab) {
-      ['dashboard','users','apikeys','data','apilog'].forEach(t => {
-        const section = document.getElementById(t + '-section');
-        if (section) section.style.display = (t === tab) ? 'block' : 'none';
-      });
-      const cards = document.getElementById('dashboard-cards');
-      if (cards) cards.style.display = tab === 'dashboard' ? 'flex' : 'none';
-      document.querySelectorAll('#tabnav a').forEach(a => {
-        a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
-      });
-    }
-    function loadAll() {
-      loadUsers(); loadApiKeys(); loadData(); loadApiLog();
-      document.getElementById('site-url').textContent = window.location.origin;
-    }
-    function loadUsers() {
-      api('/api/admin/users').then(d => {
-        const tb = document.querySelector('#users-table tbody');
-        tb.innerHTML = '';
-        (d.users || []).forEach(u => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = '<td>' + u.id + '</td><td>' + u.username + '</td><td>' + u.displayName + '</td><td>' + new Date(u.createdAt).toLocaleString() + '</td><td class="actions"><button onclick="editUser(\'' + u.id + '\')">Edit</button><button onclick="delUser(\'' + u.id + '\')">Delete</button></td>';
-          tb.appendChild(tr);
-        });
-        document.getElementById('stat-users').textContent = (d.users || []).length;
-      });
-    }
-    function editUser(id) { const name = prompt('New display name:'); if (!name) return; api('/api/admin/users/' + id, { method: 'PUT', body: JSON.stringify({ displayName: name }), headers: { 'Content-Type': 'application/json' } }).then(loadUsers); }
-    function delUser(id) { if (!confirm('Delete user?')) return; api('/api/admin/users/' + id, { method: 'DELETE' }).then(loadUsers); }
-    function loadApiKeys() {
-      api('/api/admin/apikeys').then(d => {
-        document.getElementById('api-keys').innerHTML = (d.keys || []).map(k => '<span class="api-key">' + k + '</span> <button onclick="delKey(\'' + k + '\')">Delete</button>').join('<br>');
-      });
-    }
-    function addKey() { const k = document.getElementById('new-key').value.trim(); if (!k) return; api('/api/admin/apikeys', { method: 'POST', body: JSON.stringify({ key: k }), headers: { 'Content-Type': 'application/json' } }).then(loadApiKeys); }
-    function delKey(k) { if (!confirm('Delete key?')) return; api('/api/admin/apikeys/' + encodeURIComponent(k), { method: 'DELETE' }).then(loadApiKeys); }
-    function loadData() { api('/api/admin/alldata').then(d => { document.getElementById('alldata').textContent = JSON.stringify(d, null, 2); }); }
-    function showDataEdit() { api('/api/admin/alldata').then(d => { document.getElementById('data-edit-box').value = JSON.stringify(d, null, 2); document.getElementById('data-edit').style.display = 'block'; }); }
-    function hideDataEdit() { document.getElementById('data-edit').style.display = 'none'; }
-    function saveDataEdit() { const val = document.getElementById('data-edit-box').value; try { const obj = JSON.parse(val); api('/api/admin/alldata', { method: 'PUT', body: JSON.stringify(obj), headers: { 'Content-Type': 'application/json' } }).then(() => { hideDataEdit(); loadData(); }); } catch (e) { alert('Invalid JSON: ' + e); } }
-    function loadApiLog() { api('/api/admin/apilog').then(d => { const tb = document.querySelector('#apilog tbody'); tb.innerHTML = ''; (d.log || []).slice().reverse().forEach(l => { const statusClass = l.status >= 500 ? 'apilog-status-5' : l.status >= 400 ? 'apilog-status-4' : l.status >= 200 ? 'apilog-status-2' : ''; const tr = document.createElement('tr'); tr.innerHTML = '<td>' + l.time.replace('T',' ').slice(0,19) + '</td><td>' + l.ip + '</td><td>' + l.method + '</td><td>' + l.path + '</td><td class="' + statusClass + '">' + l.status + '</td><td>' + l.ms + '</td>'; tb.appendChild(tr); }); }); }
-    fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? (showTab('dashboard'), loadAll()) : login());
-  </script>
+  <script>${adminJs}</script>
 </body>
-</html>
-`);
+</html>`;
+
+  res.set('Content-Type', 'text/html');
+  res.send(adminHtml);
 });
 
 app.get('/api/admin/apilog', adminAuth, (_req, res) => {
