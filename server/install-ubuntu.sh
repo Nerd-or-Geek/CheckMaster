@@ -38,16 +38,24 @@ fi
 
 echo "Checking MariaDB service..."
 if command -v systemctl >/dev/null 2>&1; then
-  if ! systemctl is-active --quiet mariadb; then
-    echo "Starting MariaDB service..."
-    sudo systemctl enable --now mariadb
-  fi
+  echo "Starting MariaDB/MariaDB-compatible service if needed..."
+  sudo systemctl enable --now mariadb 2>/dev/null || sudo systemctl enable --now mysql 2>/dev/null || true
 else
-  sudo service mariadb start || true
+  sudo service mariadb start 2>/dev/null || sudo service mysql start 2>/dev/null || true
 fi
 
-if [[ -S /var/run/mysqld/mysqld.sock ]]; then
-  export DB_SOCKET=/var/run/mysqld/mysqld.sock
+for i in {1..10}; do
+  for socket in /var/run/mysqld/mysqld.sock /var/run/mysql/mysql.sock /tmp/mysql.sock; do
+    if [[ -S "$socket" ]]; then
+      export DB_SOCKET="$socket"
+      break 2
+    fi
+  done
+  sleep 1
+done
+
+if [[ -z "${DB_SOCKET:-}" ]]; then
+  echo "WARNING: MariaDB socket not found; database init will use TCP host/port instead."
 fi
 
 echo "Installing server dependencies..."

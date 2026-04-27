@@ -1,4 +1,6 @@
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const path = require('path');
 
 const {
   DB_HOST = '127.0.0.1',
@@ -6,10 +8,21 @@ const {
   DB_USER = 'root',
   DB_PASSWORD = '',
   DB_DATABASE = 'checklist_app',
-  DB_SOCKET = '/var/run/mysqld/mysqld.sock',
+  DB_SOCKET,
 } = process.env;
 
+const defaultSocketCandidates = [
+  DB_SOCKET,
+  '/var/run/mysqld/mysqld.sock',
+  '/var/run/mysql/mysql.sock',
+  '/tmp/mysql.sock',
+].filter(Boolean);
+
 let pool = null;
+
+function findSocketPath() {
+  return defaultSocketCandidates.find((socketPath) => fs.existsSync(socketPath));
+}
 
 function createConnectionOptions(includeDatabase = false) {
   const options = {
@@ -20,8 +33,9 @@ function createConnectionOptions(includeDatabase = false) {
     timezone: 'Z',
   };
 
-  if (DB_SOCKET && (DB_HOST === '127.0.0.1' || DB_HOST === 'localhost') && require('fs').existsSync(DB_SOCKET)) {
-    options.socketPath = DB_SOCKET;
+  const socketPath = findSocketPath();
+  if (socketPath && (DB_HOST === '127.0.0.1' || DB_HOST === 'localhost')) {
+    options.socketPath = socketPath;
   } else {
     options.host = DB_HOST;
     options.port = Number(DB_PORT);
