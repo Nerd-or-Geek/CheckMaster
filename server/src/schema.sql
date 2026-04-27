@@ -1,0 +1,35 @@
+-- MariaDB schema for CheckMaster sync server
+-- Add the missing folder and server settings tables.
+
+CREATE DATABASE IF NOT EXISTS checklist_app;
+USE checklist_app;
+
+CREATE TABLE IF NOT EXISTS folders (
+  folder_id CHAR(36) NOT NULL PRIMARY KEY,
+  owner_uid CHAR(36) NULL,
+  parent_id CHAR(36) NULL,
+  name VARCHAR(255) NOT NULL,
+  expanded TINYINT(1) NOT NULL DEFAULT 0,
+  color VARCHAR(50) NOT NULL DEFAULT '#999999',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  key_value VARCHAR(255) NOT NULL PRIMARY KEY,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS server_settings (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  settings_json TEXT NOT NULL,
+  active_checklist_id CHAR(36) NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE checklists
+  ADD COLUMN IF NOT EXISTS folder_id CHAR(36) NULL,
+  ADD COLUMN IF NOT EXISTS type VARCHAR(50) NOT NULL DEFAULT 'basic';
+
+ALTER TABLE checklist_items
+  MODIFY COLUMN section_id CHAR(36) NULL;
