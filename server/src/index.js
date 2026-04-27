@@ -79,6 +79,34 @@ function newId() {
   return crypto.randomBytes(12).toString('hex');
 }
 
+const serverLogs = [];
+const originalConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  error: console.error,
+};
+function captureServerLog(level, args) {
+  try {
+    const message = args.map((item) => {
+      if (typeof item === 'string') return item;
+      if (item instanceof Error) return item.stack || item.message;
+      return JSON.stringify(item, null, 2);
+    }).join(' ');
+    serverLogs.push({
+      time: new Date().toISOString(),
+      level,
+      message,
+    });
+    if (serverLogs.length > 200) serverLogs.shift();
+  } catch (_) {}
+}
+['log', 'info', 'warn', 'error'].forEach((method) => {
+  console[method] = (...args) => {
+    captureServerLog(method, args);
+    originalConsole[method].apply(console, args);
+  };
+});
 
 // In-memory API call log (last 100 calls)
 const apiCallLog = [];
@@ -439,8 +467,13 @@ function showTab(tab) {
   });
 }
 function loadAll() {
-  loadUsers(); loadApiKeys(); loadData(); loadApiLog();
+  loadUsers(); loadApiKeys(); loadData(); loadApiLog(); loadServerLogs();
   document.getElementById('site-url').textContent = '${serverUrl}';
+}
+function loadServerLogs() {
+  api('/api/admin/serverlogs').then(d => {
+    document.getElementById('serverlogs').textContent = (d.logs || []).slice().reverse().map(log => `${log.time} [${log.level.toUpperCase()}] ${log.message}`).join('\n');
+  });
 }
 function loadUsers() {
   api('/api/admin/users').then(d => {
@@ -488,6 +521,7 @@ fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then
         <a href="#apikeys" onclick="showTab('apikeys')">API Keys</a>
         <a href="#data" onclick="showTab('data')">Data</a>
         <a href="#apilog" onclick="showTab('apilog')">API Log</a>
+        <a href="#serverlogs" onclick="showTab('serverlogs')">Server Logs</a>
       </nav>
     </aside>
     <main class="main">
@@ -524,6 +558,10 @@ fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then
         <h2>API Call Log</h2>
         <table class="apilog-table" id="apilog"><thead><tr><th>Time</th><th>IP</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th></tr></thead><tbody></tbody></table>
       </div>
+      <div class="section" id="serverlogs-section" style="display:none">
+        <h2>Server Logs</h2>
+        <pre id="serverlogs" style="max-height:320px;overflow:auto;background:#f1f5f9;padding:12px;border-radius:8px;white-space:pre-wrap;"></pre>
+      </div>
     </main>
   </div>
   <script>${adminJs}</script>
@@ -536,6 +574,9 @@ fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then
 
 app.get('/api/admin/apilog', adminAuth, (_req, res) => {
   res.json({ log: apiCallLog });
+});
+app.get('/api/admin/serverlogs', adminAuth, (_req, res) => {
+  res.json({ logs: serverLogs });
 });
 
 app.get('/api/admin/ping', adminAuth, (_req, res) => res.json({ ok: true }));
