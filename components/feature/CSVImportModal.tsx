@@ -17,8 +17,8 @@ interface CSVImportModalProps {
 type ColumnMapping = 'section' | 'item' | 'quantity' | 'description' | 'ignore';
 
 export default function CSVImportModal({ visible, onClose, checklistId }: CSVImportModalProps) {
-  const { settings, importCSV } = useApp();
-  const theme = settings.darkMode ? colors.dark : colors.light;
+  const { isDark, importCSV } = useApp();
+  const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
   const sheetHeight = Math.min(
     Dimensions.get('window').height * 0.9,

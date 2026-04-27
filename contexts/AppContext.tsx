@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants/config';
 import {
@@ -17,22 +17,18 @@ function mergeLoadedSettings(raw: unknown): AppSettings {
   return { ...defaultSettings, ...(raw as AppSettings) };
 }
 
-function roleOf(c: Checklist): ChecklistShareRole {
-  return c.shareRole ?? 'owner';
-}
-
 function canEditStructure(c: Checklist): boolean {
-  const r = roleOf(c);
+  const r = c.shareRole ?? 'owner';
   return r === 'owner' || r === 'edit';
 }
 
 function canEditItemFields(c: Checklist): boolean {
-  const r = roleOf(c);
+  const r = c.shareRole ?? 'owner';
   return r === 'owner' || r === 'edit';
 }
 
 function canToggleChecks(c: Checklist): boolean {
-  const r = roleOf(c);
+  const r = c.shareRole ?? 'owner';
   return r === 'owner' || r === 'edit' || r === 'check';
 }
 
@@ -43,7 +39,6 @@ interface AppContextType {
   activeChecklistId: string | null;
   currentFolderId: string | null;
   viewMode: 'interactive' | 'stats';
-  /** Resolved dark mode considering system preference */
   isDark: boolean;
 
   setActiveChecklistId: (id: string | null) => void;
@@ -54,6 +49,7 @@ interface AppContextType {
   updateFolder: (id: string, updates: Partial<Folder>) => void;
   deleteFolder: (id: string) => void;
   toggleFolderExpand: (id: string) => void;
+  reorderFolders: (parentId: string | null, orderedIds: string[]) => void;
 
   addChecklist: (checklist: Omit<Checklist, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateChecklist: (id: string, updates: Partial<Checklist>) => void;
@@ -64,18 +60,19 @@ interface AppContextType {
   updateSection: (checklistId: string, sectionId: string, updates: Partial<Section>) => void;
   deleteSection: (checklistId: string, sectionId: string) => void;
   toggleSectionExpand: (checklistId: string, sectionId: string) => void;
+  reorderSections: (checklistId: string, orderedIds: string[]) => void;
 
   addItem: (checklistId: string, item: Omit<ChecklistItem, 'id' | 'createdAt'>) => void;
   updateItem: (checklistId: string, itemId: string, updates: Partial<ChecklistItem>) => void;
   deleteItem: (checklistId: string, itemId: string) => void;
   toggleItemCheck: (checklistId: string, itemId: string) => void;
   setItemStatus: (checklistId: string, itemId: string, statusId: string) => void;
+  reorderItems: (checklistId: string, sectionId: string | null, orderedIds: string[]) => void;
 
   updateSettings: (updates: Partial<AppSettings>) => void;
   importCSV: (checklistId: string, sections: { name: string; items: Omit<ChecklistItem, 'id' | 'createdAt'>[] }[]) => void;
   importSharedChecklist: (folderId: string, pastedText: string) => { ok: true } | { ok: false; error: string };
 
-  /** Wipe all data from device — used by account deletion */
   deleteAllData: () => Promise<void>;
 
   testSyncServer: () => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -107,7 +104,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'interactive' | 'stats'>('interactive');
 
-  // Resolved dark mode: system preference when systemDarkMode is true, else manual
   const isDark = settings.systemDarkMode
     ? systemScheme === 'dark'
     : settings.darkMode;
@@ -129,15 +125,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.FOLDERS, JSON.stringify(folders)); }, [folders]);
-  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.CHECKLISTS, JSON.stringify(checklists)); }, [checklists]);
-  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.FOLDERS, JSON.stringify(folders)).catch(() => {}); }, [folders]);
+  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.CHECKLISTS, JSON.stringify(checklists)).catch(() => {}); }, [checklists]);
+  useEffect(() => { AsyncStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings)).catch(() => {}); }, [settings]);
   useEffect(() => {
-    if (activeChecklistId) AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_CHECKLIST, activeChecklistId);
+    if (activeChecklistId) AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_CHECKLIST, activeChecklistId).catch(() => {});
+    else AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_CHECKLIST).catch(() => {});
   }, [activeChecklistId]);
 
   const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+  // ---------- Folders ----------
   const addFolder = useCallback((name: string, parentId: string | null, color: string) => {
     setFolders(prev => [...prev, { id: genId(), name, parentId, expanded: false, color, createdAt: Date.now() }]);
   }, []);
@@ -149,8 +147,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteFolder = useCallback((id: string) => {
     setFolders(prev => {
       const getDescendants = (fid: string): string[] => {
-        const children = prev.filter(f => f.parentId === fid);
-        return [fid, ...children.flatMap(c => getDescendants(c.id))];
+        const ch = prev.filter(f => f.parentId === fid);
+        return [fid, ...ch.flatMap(c => getDescendants(c.id))];
       };
       const toDelete = new Set(getDescendants(id));
       return prev.filter(f => !toDelete.has(f.id));
@@ -162,14 +160,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFolders(prev => prev.map(f => f.id === id ? { ...f, expanded: !f.expanded } : f));
   }, []);
 
+  const reorderFolders = useCallback((parentId: string | null, orderedIds: string[]) => {
+    setFolders(prev => {
+      const others = prev.filter(f => f.parentId !== parentId);
+      const reordered = orderedIds
+        .map(id => prev.find(f => f.id === id))
+        .filter(Boolean) as Folder[];
+      return [...others, ...reordered];
+    });
+  }, []);
+
+  // ---------- Checklists ----------
   const addChecklist = useCallback((checklist: Omit<Checklist, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const shareRole = checklist.shareRole ?? 'owner';
     const newCl: Checklist = {
       ...checklist,
       id: genId(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      ...(shareRole === 'owner' ? {} : { shareRole }),
     };
     setChecklists(prev => [...prev, newCl]);
     setActiveChecklistId(newCl.id);
@@ -196,10 +203,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  // ---------- Sections ----------
   const addSection = useCallback((checklistId: string, name: string) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       const newSection: Section = { id: genId(), name, expanded: true, order: c.sections.length };
       return { ...c, sections: [...c.sections, newSection], updatedAt: Date.now() };
     }));
@@ -207,16 +214,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateSection = useCallback((checklistId: string, sectionId: string, updates: Partial<Section>) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       return { ...c, sections: c.sections.map(s => s.id === sectionId ? { ...s, ...updates } : s), updatedAt: Date.now() };
     }));
   }, []);
 
   const deleteSection = useCallback((checklistId: string, sectionId: string) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       return {
         ...c,
         sections: c.sections.filter(s => s.id !== sectionId),
@@ -233,10 +238,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const reorderSections = useCallback((checklistId: string, orderedIds: string[]) => {
+    setChecklists(prev => prev.map(c => {
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
+      const newSections = orderedIds
+        .map((id, idx) => {
+          const sec = c.sections.find(s => s.id === id);
+          return sec ? { ...sec, order: idx } : null;
+        })
+        .filter(Boolean) as Section[];
+      return { ...c, sections: newSections, updatedAt: Date.now() };
+    }));
+  }, []);
+
+  // ---------- Items ----------
   const addItem = useCallback((checklistId: string, item: Omit<ChecklistItem, 'id' | 'createdAt'>) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       const newItem: ChecklistItem = { ...item, id: genId(), createdAt: Date.now() };
       return { ...c, items: [...c.items, newItem], updatedAt: Date.now() };
     }));
@@ -244,24 +262,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateItem = useCallback((checklistId: string, itemId: string, updates: Partial<ChecklistItem>) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditItemFields(c)) return c;
+      if (c.id !== checklistId || !canEditItemFields(c)) return c;
       return { ...c, items: c.items.map(i => i.id === itemId ? { ...i, ...updates } : i), updatedAt: Date.now() };
     }));
   }, []);
 
   const deleteItem = useCallback((checklistId: string, itemId: string) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       return { ...c, items: c.items.filter(i => i.id !== itemId), updatedAt: Date.now() };
     }));
   }, []);
 
   const toggleItemCheck = useCallback((checklistId: string, itemId: string) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canToggleChecks(c)) return c;
+      if (c.id !== checklistId || !canToggleChecks(c)) return c;
       const statuses = c.settings.itemStatuses;
       if (statuses && statuses.length > 0) {
         return {
@@ -279,11 +294,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...c,
         items: c.items.map(i => {
           if (i.id !== itemId) return i;
-          const newChecked = !i.checked;
+          const nc = !i.checked;
           if (c.settings.enableQuantity && i.requiredQty > 0) {
-            return { ...i, checked: newChecked, ownedQty: newChecked ? i.requiredQty : 0 };
+            return { ...i, checked: nc, ownedQty: nc ? i.requiredQty : 0 };
           }
-          return { ...i, checked: newChecked };
+          return { ...i, checked: nc };
         }),
         updatedAt: Date.now(),
       };
@@ -292,8 +307,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setItemStatus = useCallback((checklistId: string, itemId: string, statusId: string) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canToggleChecks(c)) return c;
+      if (c.id !== checklistId || !canToggleChecks(c)) return c;
       const statuses = c.settings.itemStatuses ?? [];
       const isDoneVal = statuses.find(s => s.id === statusId)?.isDone ?? false;
       return {
@@ -304,6 +318,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const reorderItems = useCallback((checklistId: string, sectionId: string | null, orderedIds: string[]) => {
+    setChecklists(prev => prev.map(c => {
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
+      const sectionItems = orderedIds
+        .map(id => c.items.find(i => i.id === id))
+        .filter(Boolean) as ChecklistItem[];
+      const otherItems = c.items.filter(i => i.sectionId !== sectionId);
+      return { ...c, items: [...otherItems, ...sectionItems], updatedAt: Date.now() };
+    }));
+  }, []);
+
+  // ---------- Settings ----------
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
   }, []);
@@ -311,33 +337,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const importSharedChecklist = useCallback((folderId: string, pastedText: string) => {
     const payload = decodeChecklistShare(pastedText.trim());
     if (!payload) return { ok: false as const, error: 'Could not read shared checklist. Paste the full message including the markers.' };
-
     const sectionIdMap = new Map<string, string>();
     const newSections: Section[] = payload.snapshot.sections.map((s, idx) => {
       const id = genId();
       sectionIdMap.set(s.id, id);
       return { ...s, id, order: idx };
     });
-
     const newItems: ChecklistItem[] = payload.snapshot.items.map(i => ({
-      ...i,
-      id: genId(),
+      ...i, id: genId(),
       sectionId: i.sectionId ? (sectionIdMap.get(i.sectionId) ?? null) : null,
       createdAt: Date.now(),
     }));
-
     const newCl: Checklist = {
-      id: genId(),
-      name: payload.snapshot.name,
-      description: payload.snapshot.description,
-      folderId,
-      type: payload.snapshot.type,
-      shareRole: payload.grant,
-      sections: newSections,
-      items: newItems,
+      id: genId(), name: payload.snapshot.name, description: payload.snapshot.description,
+      folderId, type: payload.snapshot.type, shareRole: payload.grant,
+      sections: newSections, items: newItems,
       settings: { ...payload.snapshot.settings },
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: Date.now(), updatedAt: Date.now(),
     };
     setChecklists(prev => [...prev, newCl]);
     setActiveChecklistId(newCl.id);
@@ -346,13 +362,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const importCSV = useCallback((checklistId: string, sections: { name: string; items: Omit<ChecklistItem, 'id' | 'createdAt'>[] }[]) => {
     setChecklists(prev => prev.map(c => {
-      if (c.id !== checklistId) return c;
-      if (!canEditStructure(c)) return c;
+      if (c.id !== checklistId || !canEditStructure(c)) return c;
       const newSections: Section[] = sections.map((s, idx) => ({
-        id: genId(),
-        name: s.name,
-        expanded: true,
-        order: c.sections.length + idx,
+        id: genId(), name: s.name, expanded: true, order: c.sections.length + idx,
       }));
       const newItems: ChecklistItem[] = [];
       sections.forEach((s, sIdx) => {
@@ -374,14 +386,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChecklists([]);
     setActiveChecklistId(null);
     setSettings({ ...defaultSettings });
-    await AsyncStorage.multiRemove([
-      STORAGE_KEYS.FOLDERS,
-      STORAGE_KEYS.CHECKLISTS,
-      STORAGE_KEYS.SETTINGS,
-      STORAGE_KEYS.ACTIVE_CHECKLIST,
-    ]);
+    try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.FOLDERS, STORAGE_KEYS.CHECKLISTS,
+        STORAGE_KEYS.SETTINGS, STORAGE_KEYS.ACTIVE_CHECKLIST,
+      ]);
+    } catch {}
   }, []);
 
+  // ---------- Server ----------
   const testSyncServer = useCallback(async () => {
     return httpPingServer(settings.serverUrl, settings.serverApiKey);
   }, [settings.serverUrl, settings.serverApiKey]);
@@ -409,14 +422,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pushDataToServer = useCallback(async () => {
     const url = settings.serverUrl.trim();
     const key = settings.serverApiKey.trim();
-    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key in Settings first.' };
+    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key first.' };
     const remoteSettings = { ...settings, serverUrl: '', serverApiKey: '' };
-    const result = await pushToServer(url, key, {
-      folders,
-      checklists,
-      settings: remoteSettings,
-      activeChecklistId,
-    });
+    const result = await pushToServer(url, key, { folders, checklists, settings: remoteSettings, activeChecklistId });
     if (!result.ok) return result;
     setSettings(prev => ({ ...prev, lastSyncTime: Date.now() }));
     return { ok: true as const };
@@ -425,7 +433,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pullDataFromServer = useCallback(async () => {
     const url = settings.serverUrl.trim();
     const key = settings.serverApiKey.trim();
-    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key in Settings first.' };
+    if (!url || !key) return { ok: false as const, error: 'Set server URL and API key first.' };
     const result = await pullFromServer(url, key);
     if (!result.ok) return result;
     const { folders: f, checklists: c, settings: s, activeChecklistId: a } = result.data;
@@ -441,12 +449,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { ok: true as const };
   }, [settings.serverUrl, settings.serverApiKey]);
 
+  // ---------- Getters ----------
   const getActiveChecklist = useCallback(() => {
     return checklists.find(c => c.id === activeChecklistId) || null;
   }, [checklists, activeChecklistId]);
 
   const getFolderChildren = useCallback((parentId: string | null) => {
-    return folders.filter(f => f.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+    return folders.filter(f => f.parentId === parentId);
   }, [folders]);
 
   const getFolderChecklists = useCallback((folderId: string) => {
@@ -456,35 +465,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getChecklistStats = useCallback((checklistId: string, sectionId?: string | null) => {
     const cl = checklists.find(c => c.id === checklistId);
     if (!cl) return { total: 0, completed: 0, percentage: 0, categoryBreakdown: {}, partialItems: [] };
-
     let items = cl.items;
-    if (sectionId !== undefined && sectionId !== null) {
-      items = items.filter(i => i.sectionId === sectionId);
-    }
-
+    if (sectionId !== undefined && sectionId !== null) items = items.filter(i => i.sectionId === sectionId);
     const statuses = cl.settings.itemStatuses;
     const isItemDone = (i: ChecklistItem): boolean => {
-      if (statuses && statuses.length > 0 && i.status) {
-        return statuses.find(s => s.id === i.status)?.isDone ?? false;
-      }
+      if (statuses && statuses.length > 0 && i.status) return statuses.find(s => s.id === i.status)?.isDone ?? false;
       return i.checked;
     };
-
     const total = items.length;
     const completed = items.filter(isItemDone).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-
     const categoryBreakdown: Record<string, { total: number; completed: number }> = {};
     items.forEach(i => {
       if (!categoryBreakdown[i.category]) categoryBreakdown[i.category] = { total: 0, completed: 0 };
       categoryBreakdown[i.category].total++;
       if (isItemDone(i)) categoryBreakdown[i.category].completed++;
     });
-
-    const partialItems = items.filter(i =>
-      cl.settings.enableQuantity && i.requiredQty > 0 && i.ownedQty > 0 && i.ownedQty < i.requiredQty
-    );
-
+    const partialItems = items.filter(i => cl.settings.enableQuantity && i.requiredQty > 0 && i.ownedQty > 0 && i.ownedQty < i.requiredQty);
     return { total, completed, percentage, categoryBreakdown, partialItems };
   }, [checklists]);
 
@@ -492,10 +489,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider value={{
       folders, checklists, settings, activeChecklistId, currentFolderId, viewMode, isDark,
       setActiveChecklistId, setCurrentFolderId, setViewMode,
-      addFolder, updateFolder, deleteFolder, toggleFolderExpand,
+      addFolder, updateFolder, deleteFolder, toggleFolderExpand, reorderFolders,
       addChecklist, updateChecklist, deleteChecklist, moveChecklist,
-      addSection, updateSection, deleteSection, toggleSectionExpand,
-      addItem, updateItem, deleteItem, toggleItemCheck, setItemStatus,
+      addSection, updateSection, deleteSection, toggleSectionExpand, reorderSections,
+      addItem, updateItem, deleteItem, toggleItemCheck, setItemStatus, reorderItems,
       updateSettings, importCSV, importSharedChecklist, deleteAllData,
       testSyncServer, pushDataToServer, pullDataFromServer, registerServerProfile, loginServerProfile,
       getActiveChecklist, getFolderChildren, getFolderChecklists, getChecklistStats,
