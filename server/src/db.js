@@ -6,20 +6,38 @@ const {
   DB_USER = 'root',
   DB_PASSWORD = '',
   DB_DATABASE = 'checklist_app',
+  DB_SOCKET = '/var/run/mysqld/mysqld.sock',
 } = process.env;
 
 let pool = null;
 
-async function createDatabaseIfNeeded() {
-  const basePool = await mysql.createPool({
-    host: DB_HOST,
-    port: Number(DB_PORT),
+function createConnectionOptions(includeDatabase = false) {
+  const options = {
     user: DB_USER,
     password: DB_PASSWORD,
     waitForConnections: true,
-    connectionLimit: 1,
     queueLimit: 0,
     timezone: 'Z',
+  };
+
+  if (DB_SOCKET && (DB_HOST === '127.0.0.1' || DB_HOST === 'localhost') && require('fs').existsSync(DB_SOCKET)) {
+    options.socketPath = DB_SOCKET;
+  } else {
+    options.host = DB_HOST;
+    options.port = Number(DB_PORT);
+  }
+
+  if (includeDatabase) {
+    options.database = DB_DATABASE;
+  }
+
+  return options;
+}
+
+async function createDatabaseIfNeeded() {
+  const basePool = await mysql.createPool({
+    ...createConnectionOptions(false),
+    connectionLimit: 1,
   });
 
   await basePool.query(`CREATE DATABASE IF NOT EXISTS \`${DB_DATABASE}\``);
@@ -30,16 +48,9 @@ async function getPool() {
   if (pool) return pool;
   await createDatabaseIfNeeded();
   pool = mysql.createPool({
-    host: DB_HOST,
-    port: Number(DB_PORT),
-    user: DB_USER,
-    password: DB_PASSWORD,
-    database: DB_DATABASE,
-    waitForConnections: true,
+    ...createConnectionOptions(true),
     connectionLimit: 10,
-    queueLimit: 0,
     namedPlaceholders: true,
-    timezone: 'Z',
   });
   return pool;
 }

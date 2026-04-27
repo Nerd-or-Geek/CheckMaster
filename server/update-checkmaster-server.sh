@@ -44,6 +44,10 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
+if [[ -S /var/run/mysqld/mysqld.sock ]]; then
+  export DB_SOCKET=/var/run/mysqld/mysqld.sock
+fi
+
 echo "Checking database setup..."
 node <<'NODE'
 const fs = require('fs');

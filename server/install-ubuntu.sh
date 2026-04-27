@@ -46,6 +46,10 @@ else
   sudo service mariadb start || true
 fi
 
+if [[ -S /var/run/mysqld/mysqld.sock ]]; then
+  export DB_SOCKET=/var/run/mysqld/mysqld.sock
+fi
+
 echo "Installing server dependencies..."
 if [[ -f package-lock.json ]]; then
   npm ci --omit=dev
