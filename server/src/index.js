@@ -427,37 +427,47 @@ app.get('/admin', (req, res) => {
       <div class="layout">
         <aside class="sidebar">
           <h1>CheckMaster</h1>
-          <nav>
-            <a href="#dashboard" class="active">Dashboard</a>
-            <a href="#users">Users</a>
-            <a href="#apikeys">API Keys</a>
-            <a href="#data">Data</a>
-            <a href="#apilog">API Log</a>
+          <nav id="tabnav">
+            <a href="#dashboard" class="active" onclick="showTab('dashboard')">Dashboard</a>
+            <a href="#users" onclick="showTab('users')">Users</a>
+            <a href="#apikeys" onclick="showTab('apikeys')">API Keys</a>
+            <a href="#data" onclick="showTab('data')">Data</a>
+            <a href="#apilog" onclick="showTab('apilog')">API Log</a>
           </nav>
         </aside>
         <main class="main">
-          <div class="cards">
+          <div class="cards" id="dashboard-cards">
             <div class="card"><h2>Users</h2><div class="big" id="stat-users">${userCount}</div></div>
             <div class="card"><h2>Checklists</h2><div class="big" id="stat-checklists">${checklistCount}</div></div>
             <div class="card"><h2>Folders</h2><div class="big" id="stat-folders">${folderCount}</div></div>
             <div class="card"><h2>Shares</h2><div class="big" id="stat-shares">${shareCount}</div></div>
           </div>
-          <div class="section" id="dashboard">
-            <h2>API Call Log</h2>
-            <table class="apilog-table" id="apilog"><thead><tr><th>Time</th><th>IP</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th></tr></thead><tbody></tbody></table>
+          <div class="section" id="dashboard-section">
+            <h2>Server Info</h2>
+            <div>Site URL: <span class="api-key" id="site-url"></span></div>
+            <div>API Key: <span class="api-key">${API_KEY}</span></div>
           </div>
-          <div class="section" id="users">
+          <div class="section" id="users-section" style="display:none">
             <h2>Users</h2>
             <table id="users-table"><thead><tr><th>ID</th><th>Username</th><th>Display Name</th><th>Created</th><th>Actions</th></tr></thead><tbody></tbody></table>
           </div>
-          <div class="section" id="apikeys">
+          <div class="section" id="apikeys-section" style="display:none">
             <h2>API Keys</h2>
             <div id="api-keys"></div>
             <input id="new-key" placeholder="New API key" /> <button onclick="addKey()">Add Key</button>
           </div>
-          <div class="section" id="data">
+          <div class="section" id="data-section" style="display:none">
             <h2>All Data</h2>
             <pre id="alldata" style="max-height:300px;overflow:auto;background:#f1f5f9;padding:12px;border-radius:8px;"></pre>
+            <button onclick="showDataEdit()">Edit Data</button>
+            <div id="data-edit" style="display:none;margin-top:10px;">
+              <textarea id="data-edit-box" style="width:100%;height:120px;"></textarea><br>
+              <button onclick="saveDataEdit()">Save</button> <button onclick="hideDataEdit()">Cancel</button>
+            </div>
+          </div>
+          <div class="section" id="apilog-section" style="display:none">
+            <h2>API Call Log</h2>
+            <table class="apilog-table" id="apilog"><thead><tr><th>Time</th><th>IP</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th></tr></thead><tbody></tbody></table>
           </div>
         </main>
       </div>
@@ -474,8 +484,21 @@ app.get('/admin', (req, res) => {
           opts.headers = opts.headers || {}; opts.headers.Authorization = 'Bearer ' + token;
           return fetch(path, opts).then(r => r.json());
         }
+        function showTab(tab) {
+          // Hide all sections
+          ['dashboard','users','apikeys','data','apilog'].forEach(t => {
+            document.getElementById(t+'-section').style.display = (t===tab)?'block':'none';
+            if(document.getElementById(t+'-cards')) document.getElementById(t+'-cards').style.display = (t===tab)?'flex':'none';
+          });
+          // Set nav active
+          Array.from(document.querySelectorAll('#tabnav a')).forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
+          });
+        }
         function loadAll() {
           loadUsers(); loadApiKeys(); loadData(); loadApiLog();
+          // Set site URL
+          document.getElementById('site-url').textContent = window.location.origin;
         }
         function loadUsers() {
           api('/api/admin/users').then(d => {
@@ -500,6 +523,20 @@ app.get('/admin', (req, res) => {
         function addKey() { const k = document.getElementById('new-key').value.trim(); if (!k) return; api('/api/admin/apikeys', { method:'POST', body:JSON.stringify({ key:k }), headers:{'Content-Type':'application/json'} }).then(loadApiKeys); }
         function delKey(k) { if (!confirm('Delete key?')) return; api('/api/admin/apikeys/' + k, { method:'DELETE' }).then(loadApiKeys); }
         function loadData() { api('/api/admin/alldata').then(d => { document.getElementById('alldata').textContent = JSON.stringify(d, null, 2); }); }
+        function showDataEdit() {
+          api('/api/admin/alldata').then(d => {
+            document.getElementById('data-edit-box').value = JSON.stringify(d, null, 2);
+            document.getElementById('data-edit').style.display = 'block';
+          });
+        }
+        function hideDataEdit() { document.getElementById('data-edit').style.display = 'none'; }
+        function saveDataEdit() {
+          let val = document.getElementById('data-edit-box').value;
+          try {
+            let obj = JSON.parse(val);
+            api('/api/admin/alldata', { method:'PUT', body:JSON.stringify(obj), headers:{'Content-Type':'application/json'} }).then(() => { hideDataEdit(); loadData(); });
+          } catch(e) { alert('Invalid JSON: ' + e); }
+        }
         function loadApiLog() {
           fetch('/api/admin/apilog', { headers: { Authorization: 'Bearer ' + token } })
             .then(r => r.json())
@@ -509,14 +546,26 @@ app.get('/admin', (req, res) => {
               (d.log||[]).slice().reverse().forEach(l => {
                 const statusClass = l.status >= 500 ? 'apilog-status-5' : l.status >= 400 ? 'apilog-status-4' : l.status >= 200 ? 'apilog-status-2' : '';
                 const tr = document.createElement('tr');
+                // This is browser JS, not JSX. Linter false positive.
                 tr.innerHTML = `<td>${l.time.replace('T',' ').slice(0,19)}</td><td>${l.ip}</td><td>${l.method}</td><td>${l.path}</td><td class='${statusClass}'>${l.status}</td><td>${l.ms}</td>`;
                 tb.appendChild(tr);
               });
             });
         }
         // Try auto-login
-        fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? loadAll() : login());
+        fetch('/api/admin/ping', { headers: { Authorization: 'Bearer ' + token } }).then(r => r.ok ? (showTab('dashboard'), loadAll()) : login());
       </script>
+    // Allow PUT to /api/admin/alldata to update all data (manual edit)
+    app.put('/api/admin/alldata', adminAuth, (req, res) => {
+      try {
+        const obj = req.body;
+        if (!obj || typeof obj !== 'object') return res.status(400).json({ error: 'Invalid data' });
+        writeState(obj);
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e.message || e) });
+      }
+    });
     </body>
     </html>
   `);
