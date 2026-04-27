@@ -89,7 +89,10 @@ if (fs.existsSync(envPath)) {
   });
 }
 require('./src/db').initialize()
-  .then(() => console.log('Database initialized.'))
+  .then(() => {
+    console.log('Database initialized.');
+    process.exit(0);
+  })
   .catch((error) => { console.error('Database initialization failed:', error); process.exit(1); });
 NODE
 
