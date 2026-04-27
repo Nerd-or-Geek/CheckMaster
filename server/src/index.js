@@ -456,7 +456,7 @@ function api(path, opts = {}) {
   return fetch(path, opts).then(r => r.json());
 }
 function showTab(tab) {
-  ['dashboard','users','apikeys','data','apilog'].forEach(t => {
+  ['dashboard','users','apikeys','data','apilog','serverlogs'].forEach(t => {
     const section = document.getElementById(t + '-section');
     if (section) section.style.display = (t === tab) ? 'block' : 'none';
   });
@@ -472,7 +472,9 @@ function loadAll() {
 }
 function loadServerLogs() {
   api('/api/admin/serverlogs').then(d => {
-    document.getElementById('serverlogs').textContent = (d.logs || []).slice().reverse().map(log => `${log.time} [${log.level.toUpperCase()}] ${log.message}`).join('\n');
+    document.getElementById('serverlogs').textContent = (d.logs || []).slice().reverse().map(function(log) {
+      return log.time + ' [' + log.level.toUpperCase() + '] ' + log.message;
+    }).join('\n');
   });
 }
 function loadUsers() {
