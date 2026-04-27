@@ -18,6 +18,49 @@ if [ -f package.json ]; then
   fi
 fi
 
+mkdir -p data
+if [ ! -f data/.env ]; then
+  echo "Bootstrap data/.env because it was missing..."
+  node scripts/bootstrap.js
+fi
+
+if ! command -v mysql >/dev/null 2>&1; then
+  echo "MariaDB client not found."
+  if [ "$(id -u)" = "0" ]; then
+    echo "Installing mariadb-client..."
+    apt-get update
+    apt-get install -y mariadb-client
+  else
+    echo "Please install MariaDB client or run this script as root."
+  fi
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl list-units --type=service --all | grep -q '^mariadb\.service'; then
+    echo "Ensuring MariaDB service is running..."
+    if [ "$(id -u)" = "0" ]; then
+      systemctl enable --now mariadb
+    fi
+  fi
+fi
+
+echo "Checking database setup..."
+node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const envPath = path.join(process.cwd(), 'data', '.env');
+if (fs.existsSync(envPath)) {
+  const raw = fs.readFileSync(envPath, 'utf8');
+  raw.split(/\r?\n/).forEach((line) => {
+    const m = line.match(/^([^#=]+)=(.*)$/);
+    if (m) process.env[m[1].trim()] = m[2].trim();
+  });
+}
+require('./src/db').initialize()
+  .then(() => console.log('Database initialized.'))
+  .catch((error) => { console.error('Database initialization failed:', error); process.exit(1); });
+NODE
+
 # Restart systemd service if available and running
 if command -v systemctl >/dev/null 2>&1; then
   if systemctl is-active --quiet checkmaster; then

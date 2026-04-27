@@ -30,6 +30,22 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v mysql >/dev/null 2>&1; then
+  echo "MariaDB client/server not found. Installing MariaDB..."
+  sudo apt-get update
+  sudo apt-get install -y mariadb-server mariadb-client
+fi
+
+echo "Checking MariaDB service..."
+if command -v systemctl >/dev/null 2>&1; then
+  if ! systemctl is-active --quiet mariadb; then
+    echo "Starting MariaDB service..."
+    sudo systemctl enable --now mariadb
+  fi
+else
+  sudo service mariadb start || true
+fi
+
 echo "Installing server dependencies..."
 if [[ -f package-lock.json ]]; then
   npm ci --omit=dev
@@ -47,6 +63,23 @@ else
   echo "=== Current API key (from data/.env) ==="
   grep '^API_KEY=' data/.env | sed 's/^API_KEY=//' || true
 fi
+
+echo "Checking database setup..."
+node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const envPath = path.join(process.cwd(), 'data', '.env');
+if (fs.existsSync(envPath)) {
+  const raw = fs.readFileSync(envPath, 'utf8');
+  raw.split(/\r?\n/).forEach((line) => {
+    const m = line.match(/^([^#=]+)=(.*)$/);
+    if (m) process.env[m[1].trim()] = m[2].trim();
+  });
+}
+require('./src/db').initialize()
+  .then(() => console.log('Database initialized.'))
+  .catch((error) => { console.error('Database initialization failed:', error); process.exit(1); });
+NODE
 
 PORT_LINE=$(grep '^PORT=' data/.env 2>/dev/null | head -1 || echo "PORT=3847")
 PORT_VAL="${PORT_LINE#PORT=}"
