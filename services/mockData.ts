@@ -46,6 +46,10 @@ export interface Checklist {
   name: string;
   description: string;
   folderId: string;
+  /** Optional stable order within a folder; lower appears earlier. */
+  order?: number;
+  /** User-marked favorite flag shown in the Favorites system folder. */
+  isFavorite?: boolean;
   type: 'basic' | 'quantity' | 'full';
   /** When set (or imported), limits what the user can change in this copy. */
   shareRole?: ChecklistShareRole;
@@ -69,6 +73,10 @@ export interface Folder {
   id: string;
   name: string;
   parentId: string | null;
+  /** Optional stable order among siblings; lower appears earlier. */
+  order?: number;
+  /** Marks a non-deletable synthetic folder created by the system. */
+  isSystem?: 'favorites' | 'shared';
   expanded: boolean;
   color: string;
   createdAt: number;

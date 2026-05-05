@@ -32,6 +32,15 @@ function canToggleChecks(c: Checklist): boolean {
   return r === 'owner' || r === 'edit' || r === 'check';
 }
 
+export const SPECIAL_FOLDER_IDS = {
+  favorites: '__sys_favorites__',
+  shared: '__sys_shared__',
+} as const;
+
+function isSystemFolderId(id: string | null): boolean {
+  return id === SPECIAL_FOLDER_IDS.favorites || id === SPECIAL_FOLDER_IDS.shared;
+}
+
 interface AppContextType {
   folders: Folder[];
   checklists: Checklist[];
@@ -55,6 +64,8 @@ interface AppContextType {
   updateChecklist: (id: string, updates: Partial<Checklist>) => void;
   deleteChecklist: (id: string) => void;
   moveChecklist: (checklistId: string, targetFolderId: string) => void;
+  reorderChecklists: (folderId: string, orderedIds: string[]) => void;
+  toggleChecklistFavorite: (checklistId: string) => void;
 
   addSection: (checklistId: string, name: string) => void;
   updateSection: (checklistId: string, sectionId: string, updates: Partial<Section>) => void;
@@ -137,34 +148,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- Folders ----------
   const addFolder = useCallback((name: string, parentId: string | null, color: string) => {
+    if (isSystemFolderId(parentId)) return;
     setFolders(prev => [...prev, { id: genId(), name, parentId, expanded: false, color, createdAt: Date.now() }]);
   }, []);
 
   const updateFolder = useCallback((id: string, updates: Partial<Folder>) => {
+    if (isSystemFolderId(id)) return;
     setFolders(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
   }, []);
 
   const deleteFolder = useCallback((id: string) => {
+    if (isSystemFolderId(id)) return;
+    let toDelete: Set<string> = new Set();
     setFolders(prev => {
       const getDescendants = (fid: string): string[] => {
         const ch = prev.filter(f => f.parentId === fid);
         return [fid, ...ch.flatMap(c => getDescendants(c.id))];
       };
-      const toDelete = new Set(getDescendants(id));
+      toDelete = new Set(getDescendants(id));
       return prev.filter(f => !toDelete.has(f.id));
     });
-    setChecklists(prev => prev.filter(c => c.folderId !== id));
+    setChecklists(prev => prev.filter(c => !toDelete.has(c.folderId)));
   }, []);
 
   const toggleFolderExpand = useCallback((id: string) => {
+    if (isSystemFolderId(id)) return;
     setFolders(prev => prev.map(f => f.id === id ? { ...f, expanded: !f.expanded } : f));
   }, []);
 
   const reorderFolders = useCallback((parentId: string | null, orderedIds: string[]) => {
+    if (isSystemFolderId(parentId)) return;
     setFolders(prev => {
       const others = prev.filter(f => f.parentId !== parentId);
       const reordered = orderedIds
-        .map(id => prev.find(f => f.id === id))
+        .map((id, idx) => {
+          const found = prev.find(f => f.id === id);
+          return found ? { ...found, order: idx } : null;
+        })
         .filter(Boolean) as Folder[];
       return [...others, ...reordered];
     });
@@ -172,15 +192,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- Checklists ----------
   const addChecklist = useCallback((checklist: Omit<Checklist, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (isSystemFolderId(checklist.folderId)) return;
     const newCl: Checklist = {
       ...checklist,
       id: genId(),
+      order: checklists.filter(c => c.folderId === checklist.folderId).length,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     setChecklists(prev => [...prev, newCl]);
     setActiveChecklistId(newCl.id);
-  }, []);
+  }, [checklists]);
 
   const updateChecklist = useCallback((id: string, updates: Partial<Checklist>) => {
     setChecklists(prev => prev.map(c => {
@@ -196,11 +218,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const moveChecklist = useCallback((checklistId: string, targetFolderId: string) => {
+    if (isSystemFolderId(targetFolderId)) return;
     setChecklists(prev => prev.map(c => {
       if (c.id !== checklistId) return c;
       if (!canEditStructure(c)) return c;
       return { ...c, folderId: targetFolderId, updatedAt: Date.now() };
     }));
+  }, []);
+
+  const reorderChecklists = useCallback((folderId: string, orderedIds: string[]) => {
+    setChecklists(prev => prev.map(c => {
+      let inGroup = false;
+      if (folderId === SPECIAL_FOLDER_IDS.favorites) inGroup = !!c.isFavorite;
+      else if (folderId === SPECIAL_FOLDER_IDS.shared) inGroup = (c.shareRole ?? 'owner') !== 'owner';
+      else inGroup = c.folderId === folderId;
+      if (!inGroup) return c;
+      const idx = orderedIds.indexOf(c.id);
+      if (idx < 0) return c;
+      return { ...c, order: idx, updatedAt: Date.now() };
+    }));
+  }, []);
+
+  const toggleChecklistFavorite = useCallback((checklistId: string) => {
+    setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, isFavorite: !c.isFavorite, updatedAt: Date.now() } : c));
   }, []);
 
   // ---------- Sections ----------
@@ -455,11 +495,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [checklists, activeChecklistId]);
 
   const getFolderChildren = useCallback((parentId: string | null) => {
-    return folders.filter(f => f.parentId === parentId);
-  }, [folders]);
+    const normalize = (list: Folder[]) => [...list].sort((a, b) => {
+      const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+      const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return a.createdAt - b.createdAt;
+    });
+
+    const normalChildren = normalize(folders.filter(f => f.parentId === parentId));
+    if (parentId !== null) return normalChildren;
+
+    const root: Folder[] = [
+      {
+        id: SPECIAL_FOLDER_IDS.favorites,
+        name: 'Favorites',
+        parentId: null,
+        expanded: true,
+        color: '#F59E0B',
+        createdAt: 0,
+        isSystem: 'favorites',
+        order: -2,
+      },
+    ];
+
+    if (settings.serverUrl && settings.serverApiKey && settings.serverUsername) {
+      root.push({
+        id: SPECIAL_FOLDER_IDS.shared,
+        name: 'Shared',
+        parentId: null,
+        expanded: true,
+        color: '#06B6D4',
+        createdAt: 1,
+        isSystem: 'shared',
+        order: -1,
+      });
+    }
+
+    return [...root, ...normalChildren];
+  }, [folders, settings.serverUrl, settings.serverApiKey, settings.serverUsername]);
 
   const getFolderChecklists = useCallback((folderId: string) => {
-    return checklists.filter(c => c.folderId === folderId).sort((a, b) => b.updatedAt - a.updatedAt);
+    const sortChecklists = (list: Checklist[]) => [...list].sort((a, b) => {
+      const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+      const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return b.updatedAt - a.updatedAt;
+    });
+
+    if (folderId === SPECIAL_FOLDER_IDS.favorites) {
+      return sortChecklists(checklists.filter(c => !!c.isFavorite));
+    }
+    if (folderId === SPECIAL_FOLDER_IDS.shared) {
+      return sortChecklists(checklists.filter(c => (c.shareRole ?? 'owner') !== 'owner'));
+    }
+
+    return sortChecklists(checklists.filter(c => c.folderId === folderId));
   }, [checklists]);
 
   const getChecklistStats = useCallback((checklistId: string, sectionId?: string | null) => {
@@ -490,7 +580,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       folders, checklists, settings, activeChecklistId, currentFolderId, viewMode, isDark,
       setActiveChecklistId, setCurrentFolderId, setViewMode,
       addFolder, updateFolder, deleteFolder, toggleFolderExpand, reorderFolders,
-      addChecklist, updateChecklist, deleteChecklist, moveChecklist,
+      addChecklist, updateChecklist, deleteChecklist, moveChecklist, reorderChecklists, toggleChecklistFavorite,
       addSection, updateSection, deleteSection, toggleSectionExpand, reorderSections,
       addItem, updateItem, deleteItem, toggleItemCheck, setItemStatus, reorderItems,
       updateSettings, importCSV, importSharedChecklist, deleteAllData,

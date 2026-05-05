@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, Pressable, ScrollView, StyleSheet, Platform,
 } from 'react-native';
@@ -35,7 +35,7 @@ export default function ChecklistScreen() {
     getActiveChecklist,
     toggleItemCheck, setItemStatus, deleteItem,
     addSection, deleteSection, toggleSectionExpand,
-    updateChecklist, addItem, updateItem,
+    updateChecklist, addItem, updateItem, toggleChecklistFavorite,
   } = useApp();
   const theme = isDark ? colors.dark : colors.light;
   const insets = useSafeAreaInsets();
@@ -53,6 +53,10 @@ export default function ChecklistScreen() {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [showStatusPicker, setShowStatusPicker] = useState<string | null>(null);
   const [showAddStatus, setShowAddStatus] = useState(false);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
+  const [editingStatusLabel, setEditingStatusLabel] = useState('');
+  const [editingStatusColor, setEditingStatusColor] = useState('#6B7280');
+  const [editingStatusIsDone, setEditingStatusIsDone] = useState(false);
   const [newStatusLabel, setNewStatusLabel] = useState('');
   const [newStatusColor, setNewStatusColor] = useState('#6B7280');
   const [newStatusIsDone, setNewStatusIsDone] = useState(false);
@@ -85,6 +89,7 @@ export default function ChecklistScreen() {
   }).length;
   const totalCount = checklist.items.length;
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const isFavorite = !!checklist.isFavorite;
 
   const shareRole = checklist.shareRole ?? 'owner';
   const canEditItems = shareRole === 'owner' || shareRole === 'edit';
@@ -92,19 +97,16 @@ export default function ChecklistScreen() {
   const canStructure = shareRole === 'owner' || shareRole === 'edit';
   const canShare = shareRole === 'owner' || shareRole === 'edit';
 
-  const segmentData = useMemo(() => {
-    if (useStatuses) {
-      return activeStatuses.map(st => ({
-        label: st.label,
-        value: checklist.items.filter(i => (i.status ?? activeStatuses[0]?.id) === st.id).length,
-        color: st.color,
-      }));
-    }
-    return [
+  const segmentData = useStatuses
+    ? activeStatuses.map(st => ({
+      label: st.label,
+      value: checklist.items.filter(i => (i.status ?? activeStatuses[0]?.id) === st.id).length,
+      color: st.color,
+    }))
+    : [
       { label: 'Done', value: completedCount, color: theme.success },
       { label: 'Remaining', value: totalCount - completedCount, color: theme.border },
     ];
-  }, [checklist, useStatuses, activeStatuses, completedCount, totalCount, theme]);
 
   const toggleNoteExpand = (id: string) => {
     setExpandedNotes(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -131,6 +133,33 @@ export default function ChecklistScreen() {
       <View style={[styles.toggleKnob, { transform: [{ translateX: value ? 20 : 2 }] }]} />
     </Pressable>
   );
+
+  const moveStatus = (statusId: string, direction: 'up' | 'down') => {
+    const idx = activeStatuses.findIndex(s => s.id === statusId);
+    if (idx < 0) return;
+    const target = direction === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= activeStatuses.length) return;
+    const next = [...activeStatuses];
+    const [row] = next.splice(idx, 1);
+    next.splice(target, 0, row);
+    updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+  };
+
+  const openStatusEditor = (status: ItemStatus) => {
+    setEditingStatusId(status.id);
+    setEditingStatusLabel(status.label);
+    setEditingStatusColor(status.color);
+    setEditingStatusIsDone(status.isDone);
+  };
+
+  const saveStatusEditor = () => {
+    if (!editingStatusId || !editingStatusLabel.trim()) return;
+    const next = activeStatuses.map(st => st.id === editingStatusId
+      ? { ...st, label: editingStatusLabel.trim(), color: editingStatusColor, isDone: editingStatusIsDone }
+      : st);
+    updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+    setEditingStatusId(null);
+  };
 
   const renderItem = (item: ChecklistItem, index: number) => {
     const catColor = categoryColors[item.category] || categoryColors.general;
@@ -246,7 +275,10 @@ export default function ChecklistScreen() {
         subtitle={checklist.description || `${completedCount}/${totalCount} items`}
         icon="checklist"
         rightAction={
-          <View style={{ flexDirection: 'row', gap: 6 }}>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <Pressable onPress={() => toggleChecklistFavorite(checklist.id)} hitSlop={8} style={[styles.hdrBtn, { backgroundColor: isFavorite ? '#FEF3C7' : theme.backgroundSecondary }]}> 
+              <MaterialIcons name={isFavorite ? 'star' : 'star-border'} size={18} color={isFavorite ? '#D97706' : theme.textSecondary} />
+            </Pressable>
             {canShare ? <Pressable onPress={() => setShowShareModal(true)} hitSlop={8} style={[styles.hdrBtn, { backgroundColor: theme.primaryBg }]}><MaterialIcons name="share" size={18} color={theme.primary} /></Pressable> : null}
             <Pressable onPress={() => setShowExport(true)} hitSlop={8} style={[styles.hdrBtn, { backgroundColor: theme.backgroundSecondary }]}><MaterialIcons name="file-download" size={18} color={theme.textSecondary} /></Pressable>
             {canStructure ? <Pressable onPress={() => setShowChecklistSettings(true)} hitSlop={8} style={[styles.hdrBtn, { backgroundColor: theme.backgroundSecondary }]}><MaterialIcons name="tune" size={18} color={theme.textSecondary} /></Pressable> : null}
@@ -361,9 +393,20 @@ export default function ChecklistScreen() {
                 <View style={{ marginTop: 8, marginBottom: 16 }}>
                   {activeStatuses.map(st => (
                     <View key={st.id} style={[styles.statusEditRow, { borderColor: theme.border }]}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: st.color }} />
-                      <Text style={{ color: theme.textPrimary, fontSize: 13, flex: 1 }}>{st.label}</Text>
-                      {st.isDone ? <View style={[styles.doneBadge, { backgroundColor: theme.successBg }]}><Text style={{ color: theme.success, fontSize: 9, fontWeight: '700' }}>DONE</Text></View> : null}
+                      <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }} onPress={() => openStatusEditor(st)}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: st.color }} />
+                        <Text style={{ color: theme.textPrimary, fontSize: 13, flex: 1 }}>{st.label}</Text>
+                      </Pressable>
+                      <Pressable onPress={() => {
+                        const next = activeStatuses.map(x => x.id === st.id ? { ...x, isDone: !x.isDone } : x);
+                        updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+                      }}>
+                        {renderToggle(st.isDone, () => {})}
+                      </Pressable>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                        <Pressable onPress={() => moveStatus(st.id, 'up')} hitSlop={8}><MaterialIcons name="arrow-upward" size={16} color={theme.textTertiary} /></Pressable>
+                        <Pressable onPress={() => moveStatus(st.id, 'down')} hitSlop={8}><MaterialIcons name="arrow-downward" size={16} color={theme.textTertiary} /></Pressable>
+                      </View>
                       <Pressable onPress={() => updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: activeStatuses.filter(x => x.id !== st.id) } })} hitSlop={8}>
                         <MaterialIcons name="remove-circle-outline" size={18} color={theme.error} />
                       </Pressable>
@@ -388,7 +431,7 @@ export default function ChecklistScreen() {
               <TextInput style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]} value={newStatusLabel} onChangeText={setNewStatusLabel} placeholder="Status label" placeholderTextColor={theme.textTertiary} autoFocus />
               <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>{STATUS_COLORS.map(c => <Pressable key={c} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c, borderWidth: newStatusColor === c ? 3 : 0, borderColor: theme.textPrimary }} onPress={() => setNewStatusColor(c)} />)}</View>
               <Pressable style={[styles.settingRow, { borderBottomColor: theme.borderLight }]} onPress={() => setNewStatusIsDone(v => !v)}>
-                <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as completed</Text>
+                <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as Complete</Text>
                 {renderToggle(newStatusIsDone, () => setNewStatusIsDone(v => !v))}
               </Pressable>
               <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: newStatusLabel.trim() ? 1 : 0.5, marginTop: 12 }]} onPress={() => {
@@ -398,6 +441,26 @@ export default function ChecklistScreen() {
                 setShowAddStatus(false);
               }} disabled={!newStatusLabel.trim()}>
                 <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>Add Status</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Status */}
+      <Modal visible={!!editingStatusId} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.modal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}> 
+            <View style={styles.modalHeader}><Text style={[styles.modalTitle, { color: theme.textPrimary }]}>Edit Status</Text><Pressable onPress={() => setEditingStatusId(null)} hitSlop={12}><MaterialIcons name="close" size={24} color={theme.textSecondary} /></Pressable></View>
+            <View style={{ paddingHorizontal: 20 }}>
+              <TextInput style={[styles.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]} value={editingStatusLabel} onChangeText={setEditingStatusLabel} placeholder="Status label" placeholderTextColor={theme.textTertiary} autoFocus />
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>{STATUS_COLORS.map(c => <Pressable key={c} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: c, borderWidth: editingStatusColor === c ? 3 : 0, borderColor: theme.textPrimary }} onPress={() => setEditingStatusColor(c)} />)}</View>
+              <Pressable style={[styles.settingRow, { borderBottomColor: theme.borderLight }]} onPress={() => setEditingStatusIsDone(v => !v)}>
+                <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as Complete</Text>
+                {renderToggle(editingStatusIsDone, () => setEditingStatusIsDone(v => !v))}
+              </Pressable>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: editingStatusLabel.trim() ? 1 : 0.5, marginTop: 12 }]} onPress={saveStatusEditor} disabled={!editingStatusLabel.trim()}>
+                <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>Save Changes</Text>
               </Pressable>
             </View>
           </View>

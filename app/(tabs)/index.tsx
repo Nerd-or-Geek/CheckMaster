@@ -8,7 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeOut, Layout } from 'react-native-reanimated';
 import { colors, categoryColors } from '../../constants/theme';
-import { useApp } from '../../contexts/AppContext';
+import { useApp, SPECIAL_FOLDER_IDS } from '../../contexts/AppContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import { Folder, Checklist, ChecklistItem, ItemStatus, DEFAULT_ITEM_STATUSES } from '../../services/mockData';
 import { APP_NAME, APP_VERSION } from '../../constants/config';
@@ -39,7 +39,7 @@ export default function FoldersScreen() {
     settings, isDark, folders, checklists, viewMode, setViewMode,
     getFolderChildren, getFolderChecklists,
     addFolder, updateFolder, deleteFolder, reorderFolders,
-    addChecklist, deleteChecklist, updateChecklist,
+    addChecklist, deleteChecklist, updateChecklist, reorderChecklists, toggleChecklistFavorite,
     setActiveChecklistId, getActiveChecklist,
     toggleItemCheck, setItemStatus, deleteItem,
     addSection, deleteSection, toggleSectionExpand, reorderSections,
@@ -84,6 +84,10 @@ export default function FoldersScreen() {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [showStatusPicker, setShowStatusPicker] = useState<string | null>(null);
   const [showAddStatus, setShowAddStatus] = useState(false);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
+  const [editingStatusLabel, setEditingStatusLabel] = useState('');
+  const [editingStatusColor, setEditingStatusColor] = useState('#6B7280');
+  const [editingStatusIsDone, setEditingStatusIsDone] = useState(false);
   const [newStatusLabel, setNewStatusLabel] = useState('');
   const [newStatusColor, setNewStatusColor] = useState('#6B7280');
   const [newStatusIsDone, setNewStatusIsDone] = useState(false);
@@ -94,6 +98,7 @@ export default function FoldersScreen() {
 
   // Desktop: settings mode vs checklist
   const [desktopMode, setDesktopMode] = useState<'checklist' | 'settings'>('checklist');
+  const [isReorderMode, setIsReorderMode] = useState(false);
 
   // Server settings
   const [serverBusy, setServerBusy] = useState(false);
@@ -111,6 +116,7 @@ export default function FoldersScreen() {
   const childFolders = getFolderChildren(currentFolderId);
   const currentChecklists = currentFolderId ? getFolderChecklists(currentFolderId) : [];
   const currentFolder = folders.find(f => f.id === currentFolderId);
+  const isCurrentSystemFolder = currentFolderId === SPECIAL_FOLDER_IDS.favorites || currentFolderId === SPECIAL_FOLDER_IDS.shared;
 
   const isServerConnected = !!(settings.serverUrl && settings.serverApiKey);
   const hasProfile = !!settings.serverUsername;
@@ -140,6 +146,48 @@ export default function FoldersScreen() {
   const canCheckItems = shareRole === 'owner' || shareRole === 'edit' || shareRole === 'check';
   const canStructure = shareRole === 'owner' || shareRole === 'edit';
   const canShare = shareRole === 'owner' || shareRole === 'edit';
+  const isFavorite = !!checklist?.isFavorite;
+
+  const moveFolder = (folderId: string, direction: 'up' | 'down') => {
+    const ids = childFolders.map(f => f.id);
+    const idx = ids.indexOf(folderId);
+    if (idx < 0) return;
+    const target = direction === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= ids.length) return;
+    const next = [...ids];
+    const [v] = next.splice(idx, 1);
+    next.splice(target, 0, v);
+    reorderFolders(currentFolderId, next);
+  };
+
+  const moveChecklist = (checklistId: string, direction: 'up' | 'down') => {
+    if (!currentFolderId) return;
+    const ids = currentChecklists.map(c => c.id);
+    const idx = ids.indexOf(checklistId);
+    if (idx < 0) return;
+    const target = direction === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= ids.length) return;
+    const next = [...ids];
+    const [v] = next.splice(idx, 1);
+    next.splice(target, 0, v);
+    reorderChecklists(currentFolderId, next);
+  };
+
+  const openStatusEditor = (status: ItemStatus) => {
+    setEditingStatusId(status.id);
+    setEditingStatusLabel(status.label);
+    setEditingStatusColor(status.color);
+    setEditingStatusIsDone(status.isDone);
+  };
+
+  const saveStatusEditor = () => {
+    if (!editingStatusId || !editingStatusLabel.trim() || !checklist) return;
+    const next = activeStatuses.map(st => st.id === editingStatusId
+      ? { ...st, label: editingStatusLabel.trim(), color: editingStatusColor, isDone: editingStatusIsDone }
+      : st);
+    updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+    setEditingStatusId(null);
+  };
 
   // Segmented bar data
   const segmentData = useMemo(() => {
@@ -454,9 +502,17 @@ export default function FoldersScreen() {
         <Text style={[s.panelTitle, { color: theme.textPrimary }]} numberOfLines={1}>
           {currentFolderId ? (currentFolder?.name ?? 'Folder') : 'Folders'}
         </Text>
-        <Pressable onPress={() => setShowCreateFolder(true)} hitSlop={8}>
-          <MaterialIcons name="create-new-folder" size={20} color={theme.primary} />
-        </Pressable>
+        {isDesktop ? (
+          <Pressable onPress={() => setIsReorderMode(v => !v)} hitSlop={8} style={[s.smallBtn, { backgroundColor: isReorderMode ? theme.primaryBg : theme.backgroundSecondary, borderColor: isReorderMode ? theme.primary : theme.border, marginRight: 6 }]}>
+            <MaterialIcons name={isReorderMode ? 'check' : 'drag-indicator'} size={14} color={isReorderMode ? theme.primary : theme.textSecondary} />
+            <Text style={{ color: isReorderMode ? theme.primary : theme.textSecondary, fontSize: 11, fontWeight: '700' }}>{isReorderMode ? 'Done' : 'Edit'}</Text>
+          </Pressable>
+        ) : null}
+        {!isCurrentSystemFolder ? (
+          <Pressable onPress={() => setShowCreateFolder(true)} hitSlop={8}>
+            <MaterialIcons name="create-new-folder" size={20} color={theme.primary} />
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Breadcrumb */}
@@ -476,11 +532,13 @@ export default function FoldersScreen() {
         {/* Subfolders */}
         {childFolders.map((folder, idx) => {
           const clCount = getFolderChecklists(folder.id).length;
+          const isSystemFolder = !!folder.isSystem;
           return (
             <Animated.View key={folder.id} entering={FadeInDown.delay(idx * 30).duration(200)}>
               <Pressable
                 style={[s.folderRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
                 onPress={() => navigateInto(folder.id)}
+                onLongPress={() => { if (!isDesktop) setIsReorderMode(true); }}
               >
                 <MaterialIcons name="folder" size={22} color={folder.color} />
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -488,12 +546,22 @@ export default function FoldersScreen() {
                   <Text style={{ color: theme.textTertiary, fontSize: 11 }}>{clCount} lists</Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 4 }}>
-                  <Pressable onPress={() => { setEditingFolder({ id: folder.id, name: folder.name, color: folder.color }); setEditFolderName(folder.name); setEditFolderColor(folder.color); }} hitSlop={6}>
-                    <MaterialIcons name="edit" size={14} color={theme.textTertiary} />
-                  </Pressable>
-                  <Pressable onPress={() => confirmDeleteFolder(folder)} hitSlop={6}>
-                    <MaterialIcons name="delete-outline" size={14} color={theme.error + '80'} />
-                  </Pressable>
+                  {(isReorderMode || !isDesktop) ? (
+                    <>
+                      <Pressable onPress={() => moveFolder(folder.id, 'up')} hitSlop={6}><MaterialIcons name="arrow-upward" size={14} color={theme.textTertiary} /></Pressable>
+                      <Pressable onPress={() => moveFolder(folder.id, 'down')} hitSlop={6}><MaterialIcons name="arrow-downward" size={14} color={theme.textTertiary} /></Pressable>
+                    </>
+                  ) : null}
+                  {!isSystemFolder ? (
+                    <>
+                      <Pressable onPress={() => { setEditingFolder({ id: folder.id, name: folder.name, color: folder.color }); setEditFolderName(folder.name); setEditFolderColor(folder.color); }} hitSlop={6}>
+                        <MaterialIcons name="edit" size={14} color={theme.textTertiary} />
+                      </Pressable>
+                      <Pressable onPress={() => confirmDeleteFolder(folder)} hitSlop={6}>
+                        <MaterialIcons name="delete-outline" size={14} color={theme.error + '80'} />
+                      </Pressable>
+                    </>
+                  ) : null}
                 </View>
               </Pressable>
             </Animated.View>
@@ -505,16 +573,18 @@ export default function FoldersScreen() {
           <>
             <View style={s.sectionLabelRow}>
               <Text style={[s.sectionLabel, { color: theme.textTertiary }]}>CHECKLISTS</Text>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                <Pressable style={[s.smallBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]} onPress={() => setShowImportShare(true)}>
-                  <MaterialIcons name="download" size={14} color={theme.textSecondary} />
-                  <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>Import</Text>
-                </Pressable>
-                <Pressable style={[s.smallBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateChecklist(true)}>
-                  <MaterialIcons name="add" size={14} color={theme.primary} />
-                  <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '600' }}>New</Text>
-                </Pressable>
-              </View>
+              {!isCurrentSystemFolder ? (
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <Pressable style={[s.smallBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]} onPress={() => setShowImportShare(true)}>
+                    <MaterialIcons name="download" size={14} color={theme.textSecondary} />
+                    <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>Import</Text>
+                  </Pressable>
+                  <Pressable style={[s.smallBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateChecklist(true)}>
+                    <MaterialIcons name="add" size={14} color={theme.primary} />
+                    <Text style={{ color: theme.primary, fontSize: 11, fontWeight: '600' }}>New</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
             {currentChecklists.length === 0 ? (
               <View style={[s.emptySmall, { borderColor: theme.border }]}>
@@ -530,6 +600,7 @@ export default function FoldersScreen() {
                   <Pressable
                     style={[s.clRow, { backgroundColor: isActive ? theme.primaryBg : theme.surface, borderColor: isActive ? theme.primary : theme.border }]}
                     onPress={() => openChecklist(cl)}
+                    onLongPress={() => { if (!isDesktop) setIsReorderMode(true); }}
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{cl.name}</Text>
@@ -540,9 +611,22 @@ export default function FoldersScreen() {
                         <Text style={{ color: theme.textTertiary, fontSize: 11 }}>{p}%</Text>
                       </View>
                     </View>
-                    <Pressable onPress={() => confirmDeleteChecklist(cl)} hitSlop={6}>
-                      <MaterialIcons name="delete-outline" size={16} color={theme.error + '60'} />
-                    </Pressable>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Pressable onPress={() => toggleChecklistFavorite(cl.id)} hitSlop={6}>
+                        <MaterialIcons name={cl.isFavorite ? 'star' : 'star-border'} size={16} color={cl.isFavorite ? '#D97706' : theme.textTertiary} />
+                      </Pressable>
+                      {(isReorderMode || !isDesktop) ? (
+                        <>
+                          <Pressable onPress={() => moveChecklist(cl.id, 'up')} hitSlop={6}><MaterialIcons name="arrow-upward" size={14} color={theme.textTertiary} /></Pressable>
+                          <Pressable onPress={() => moveChecklist(cl.id, 'down')} hitSlop={6}><MaterialIcons name="arrow-downward" size={14} color={theme.textTertiary} /></Pressable>
+                        </>
+                      ) : null}
+                      {!isCurrentSystemFolder ? (
+                        <Pressable onPress={() => confirmDeleteChecklist(cl)} hitSlop={6}>
+                          <MaterialIcons name="delete-outline" size={16} color={theme.error + '60'} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </Pressable>
                 </Animated.View>
               );
@@ -599,7 +683,10 @@ export default function FoldersScreen() {
             <Text style={{ color: theme.textPrimary, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>{checklist.name}</Text>
             {checklist.description ? <Text style={{ color: theme.textSecondary, fontSize: 12 }} numberOfLines={1}>{checklist.description}</Text> : null}
           </View>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Pressable onPress={() => toggleChecklistFavorite(checklist.id)} hitSlop={8} style={[s.iconBtn, { backgroundColor: isFavorite ? '#FEF3C7' : theme.backgroundSecondary }]}>
+              <MaterialIcons name={isFavorite ? 'star' : 'star-border'} size={18} color={isFavorite ? '#D97706' : theme.textSecondary} />
+            </Pressable>
             {canShare ? <Pressable onPress={() => setShowShareModal(true)} hitSlop={8} style={[s.iconBtn, { backgroundColor: theme.primaryBg }]}><MaterialIcons name="share" size={18} color={theme.primary} /></Pressable> : null}
             <Pressable onPress={() => setShowExport(true)} hitSlop={8} style={[s.iconBtn, { backgroundColor: theme.backgroundSecondary }]}><MaterialIcons name="file-download" size={18} color={theme.textSecondary} /></Pressable>
             {canStructure ? <Pressable onPress={() => setShowChecklistSettings(true)} hitSlop={8} style={[s.iconBtn, { backgroundColor: theme.backgroundSecondary }]}><MaterialIcons name="tune" size={18} color={theme.textSecondary} /></Pressable> : null}
@@ -881,8 +968,17 @@ export default function FoldersScreen() {
             <MaterialIcons name="arrow-back" size={20} color={theme.textPrimary} />
           </Pressable>
         ) : undefined}
-        rightAction={<Pressable style={[s.iconBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateFolder(true)} hitSlop={8}><MaterialIcons name="create-new-folder" size={20} color={theme.primary} /></Pressable>}
+        rightAction={!isCurrentSystemFolder ? <Pressable style={[s.iconBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateFolder(true)} hitSlop={8}><MaterialIcons name="create-new-folder" size={20} color={theme.primary} /></Pressable> : undefined}
       />
+
+      {isReorderMode ? (
+        <View style={{ paddingHorizontal: contentPadding, paddingTop: 8 }}>
+          <Pressable style={[s.smallBtn, { alignSelf: 'flex-end', backgroundColor: theme.primaryBg, borderColor: theme.primary }]} onPress={() => setIsReorderMode(false)}>
+            <MaterialIcons name="check" size={14} color={theme.primary} />
+            <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '700' }}>Done</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {currentFolderId && breadcrumb.length > 1 ? (
         <View style={[s.breadcrumbBar, { paddingHorizontal: contentPadding, borderBottomColor: theme.border }]}>
@@ -899,21 +995,32 @@ export default function FoldersScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: contentPadding, paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
         {childFolders.map((folder, idx) => {
           const clCount = getFolderChecklists(folder.id).length;
+          const isSystemFolder = !!folder.isSystem;
           return (
             <Animated.View key={folder.id} entering={FadeInDown.delay(idx * 40).duration(200)}>
-              <Pressable style={[s.folderCard, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => navigateInto(folder.id)}>
+              <Pressable style={[s.folderCard, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => navigateInto(folder.id)} onLongPress={() => setIsReorderMode(true)}>
                 <View style={[s.folderIconWrap, { backgroundColor: folder.color + '18' }]}><MaterialIcons name="folder" size={26} color={folder.color} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600' }}>{folder.name}</Text>
                   <Text style={{ color: theme.textTertiary, fontSize: 12 }}>{clCount} checklists</Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                  <Pressable onPress={() => { setEditingFolder({ id: folder.id, name: folder.name, color: folder.color }); setEditFolderName(folder.name); setEditFolderColor(folder.color); }} hitSlop={8}>
-                    <MaterialIcons name="edit" size={16} color={theme.textTertiary} />
-                  </Pressable>
-                  <Pressable onPress={() => confirmDeleteFolder(folder)} hitSlop={8}>
-                    <MaterialIcons name="delete-outline" size={16} color={theme.error + '80'} />
-                  </Pressable>
+                  {isReorderMode ? (
+                    <>
+                      <Pressable onPress={() => moveFolder(folder.id, 'up')} hitSlop={8}><MaterialIcons name="arrow-upward" size={16} color={theme.textTertiary} /></Pressable>
+                      <Pressable onPress={() => moveFolder(folder.id, 'down')} hitSlop={8}><MaterialIcons name="arrow-downward" size={16} color={theme.textTertiary} /></Pressable>
+                    </>
+                  ) : null}
+                  {!isSystemFolder ? (
+                    <>
+                      <Pressable onPress={() => { setEditingFolder({ id: folder.id, name: folder.name, color: folder.color }); setEditFolderName(folder.name); setEditFolderColor(folder.color); }} hitSlop={8}>
+                        <MaterialIcons name="edit" size={16} color={theme.textTertiary} />
+                      </Pressable>
+                      <Pressable onPress={() => confirmDeleteFolder(folder)} hitSlop={8}>
+                        <MaterialIcons name="delete-outline" size={16} color={theme.error + '80'} />
+                      </Pressable>
+                    </>
+                  ) : null}
                   <MaterialIcons name="chevron-right" size={22} color={theme.textTertiary} />
                 </View>
               </Pressable>
@@ -925,16 +1032,18 @@ export default function FoldersScreen() {
           <>
             <View style={[s.sectionLabelRow, { marginTop: 12 }]}>
               <Text style={[s.sectionLabel, { color: theme.textTertiary }]}>CHECKLISTS</Text>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                <Pressable style={[s.smallBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]} onPress={() => setShowImportShare(true)}>
-                  <MaterialIcons name="download" size={16} color={theme.textSecondary} />
-                  <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '600' }}>Import</Text>
-                </Pressable>
-                <Pressable style={[s.smallBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateChecklist(true)}>
-                  <MaterialIcons name="add" size={16} color={theme.primary} />
-                  <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '600' }}>New</Text>
-                </Pressable>
-              </View>
+              {!isCurrentSystemFolder ? (
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <Pressable style={[s.smallBtn, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]} onPress={() => setShowImportShare(true)}>
+                    <MaterialIcons name="download" size={16} color={theme.textSecondary} />
+                    <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '600' }}>Import</Text>
+                  </Pressable>
+                  <Pressable style={[s.smallBtn, { backgroundColor: theme.primaryBg }]} onPress={() => setShowCreateChecklist(true)}>
+                    <MaterialIcons name="add" size={16} color={theme.primary} />
+                    <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '600' }}>New</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
             {currentChecklists.length === 0 ? (
               <View style={[s.emptySmall, { borderColor: theme.border, padding: 24, marginTop: 8 }]}>
@@ -950,7 +1059,7 @@ export default function FoldersScreen() {
               const p = tot > 0 ? Math.round((done / tot) * 100) : 0;
               return (
                 <Animated.View key={cl.id} entering={FadeInDown.delay(idx * 40).duration(200)}>
-                  <Pressable style={[s.clCardMobile, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => openChecklist(cl)}>
+                  <Pressable style={[s.clCardMobile, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => openChecklist(cl)} onLongPress={() => setIsReorderMode(true)}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.textPrimary, fontSize: 15, fontWeight: '600' }}>{cl.name}</Text>
                       {cl.description ? <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }} numberOfLines={1}>{cl.description}</Text> : null}
@@ -961,9 +1070,22 @@ export default function FoldersScreen() {
                         <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '600' }}>{p}% ({done}/{tot})</Text>
                       </View>
                     </View>
-                    <Pressable onPress={() => confirmDeleteChecklist(cl)} hitSlop={8} style={{ marginLeft: 8 }}>
-                      <MaterialIcons name="delete-outline" size={18} color={theme.error + '60'} />
-                    </Pressable>
+                    <View style={{ marginLeft: 8, gap: 8, alignItems: 'center' }}>
+                      <Pressable onPress={() => toggleChecklistFavorite(cl.id)} hitSlop={8}>
+                        <MaterialIcons name={cl.isFavorite ? 'star' : 'star-border'} size={18} color={cl.isFavorite ? '#D97706' : theme.textTertiary} />
+                      </Pressable>
+                      {isReorderMode ? (
+                        <>
+                          <Pressable onPress={() => moveChecklist(cl.id, 'up')} hitSlop={8}><MaterialIcons name="arrow-upward" size={16} color={theme.textTertiary} /></Pressable>
+                          <Pressable onPress={() => moveChecklist(cl.id, 'down')} hitSlop={8}><MaterialIcons name="arrow-downward" size={16} color={theme.textTertiary} /></Pressable>
+                        </>
+                      ) : null}
+                      {!isCurrentSystemFolder ? (
+                        <Pressable onPress={() => confirmDeleteChecklist(cl)} hitSlop={8}>
+                          <MaterialIcons name="delete-outline" size={18} color={theme.error + '60'} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   </Pressable>
                 </Animated.View>
               );
@@ -1134,7 +1256,7 @@ export default function FoldersScreen() {
                 <TextInput style={[s.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]} value={newStatusLabel} onChangeText={setNewStatusLabel} placeholder="Status label" placeholderTextColor={theme.textTertiary} autoFocus />
                 <View style={s.colorRow}>{STATUS_COLORS.map(c => <Pressable key={c} style={[s.colorDot, { backgroundColor: c, borderWidth: newStatusColor === c ? 3 : 0, borderColor: theme.textPrimary }]} onPress={() => setNewStatusColor(c)} />)}</View>
                 <Pressable style={[s.settingRow, { borderBottomColor: theme.borderLight }]} onPress={() => setNewStatusIsDone(v => !v)}>
-                  <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as completed</Text>
+                  <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as Complete</Text>
                   {renderToggle(newStatusIsDone, () => setNewStatusIsDone(v => !v))}
                 </Pressable>
                 <Pressable style={[s.primaryBtn, { backgroundColor: theme.primary, opacity: newStatusLabel.trim() ? 1 : 0.5, marginTop: 12 }]} onPress={() => {
@@ -1144,6 +1266,29 @@ export default function FoldersScreen() {
                   setShowAddStatus(false);
                 }} disabled={!newStatusLabel.trim()}>
                   <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>Add Status</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Edit Status */}
+        <Modal visible={!!editingStatusId} animationType="slide" transparent>
+          <View style={[s.modalOverlay, { backgroundColor: theme.overlay }]}>
+            <View style={[s.modal, { backgroundColor: theme.surface, paddingBottom: insets.bottom + 16 }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: theme.textPrimary }]}>Edit Status</Text>
+                <Pressable onPress={() => setEditingStatusId(null)} hitSlop={12}><MaterialIcons name="close" size={24} color={theme.textSecondary} /></Pressable>
+              </View>
+              <View style={{ paddingHorizontal: 20 }}>
+                <TextInput style={[s.input, { backgroundColor: theme.backgroundSecondary, color: theme.textPrimary, borderColor: theme.border }]} value={editingStatusLabel} onChangeText={setEditingStatusLabel} placeholder="Status label" placeholderTextColor={theme.textTertiary} autoFocus />
+                <View style={s.colorRow}>{STATUS_COLORS.map(c => <Pressable key={c} style={[s.colorDot, { backgroundColor: c, borderWidth: editingStatusColor === c ? 3 : 0, borderColor: theme.textPrimary }]} onPress={() => setEditingStatusColor(c)} />)}</View>
+                <Pressable style={[s.settingRow, { borderBottomColor: theme.borderLight }]} onPress={() => setEditingStatusIsDone(v => !v)}>
+                  <Text style={{ color: theme.textPrimary, fontSize: 14, flex: 1 }}>Counts as Complete</Text>
+                  {renderToggle(editingStatusIsDone, () => setEditingStatusIsDone(v => !v))}
+                </Pressable>
+                <Pressable style={[s.primaryBtn, { backgroundColor: theme.primary, opacity: editingStatusLabel.trim() ? 1 : 0.5, marginTop: 12 }]} onPress={saveStatusEditor} disabled={!editingStatusLabel.trim()}>
+                  <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '600' }}>Save Changes</Text>
                 </Pressable>
               </View>
             </View>
@@ -1181,9 +1326,37 @@ export default function FoldersScreen() {
                     <View style={{ marginTop: 8, marginBottom: 16 }}>
                       {activeStatuses.map(st => (
                         <View key={st.id} style={[s.statusEditRow, { borderColor: theme.border }]}>
-                          <View style={[s.statusDotLg, { backgroundColor: st.color }]} />
-                          <Text style={{ color: theme.textPrimary, fontSize: 13, flex: 1 }}>{st.label}</Text>
-                          {st.isDone ? <View style={[s.doneBadge, { backgroundColor: theme.successBg }]}><Text style={{ color: theme.success, fontSize: 9, fontWeight: '700' }}>DONE</Text></View> : null}
+                          <Pressable style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }} onPress={() => openStatusEditor(st)}>
+                            <View style={[s.statusDotLg, { backgroundColor: st.color }]} />
+                            <Text style={{ color: theme.textPrimary, fontSize: 13, flex: 1 }}>{st.label}</Text>
+                          </Pressable>
+                          <Pressable onPress={() => {
+                            if (!checklist) return;
+                            const next = activeStatuses.map(x => x.id === st.id ? { ...x, isDone: !x.isDone } : x);
+                            updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+                          }}>
+                            {renderToggle(st.isDone, () => {})}
+                          </Pressable>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                            <Pressable onPress={() => {
+                              if (!checklist) return;
+                              const idx = activeStatuses.findIndex(x => x.id === st.id);
+                              if (idx <= 0) return;
+                              const next = [...activeStatuses];
+                              const [row] = next.splice(idx, 1);
+                              next.splice(idx - 1, 0, row);
+                              updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+                            }} hitSlop={8}><MaterialIcons name="arrow-upward" size={16} color={theme.textTertiary} /></Pressable>
+                            <Pressable onPress={() => {
+                              if (!checklist) return;
+                              const idx = activeStatuses.findIndex(x => x.id === st.id);
+                              if (idx < 0 || idx >= activeStatuses.length - 1) return;
+                              const next = [...activeStatuses];
+                              const [row] = next.splice(idx, 1);
+                              next.splice(idx + 1, 0, row);
+                              updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: next } });
+                            }} hitSlop={8}><MaterialIcons name="arrow-downward" size={16} color={theme.textTertiary} /></Pressable>
+                          </View>
                           <Pressable onPress={() => updateChecklist(checklist.id, { settings: { ...checklist.settings, itemStatuses: activeStatuses.filter(s2 => s2.id !== st.id) } })} hitSlop={8}>
                             <MaterialIcons name="remove-circle-outline" size={18} color={theme.error} />
                           </Pressable>

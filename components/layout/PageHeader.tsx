@@ -58,6 +58,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 4,
+    minWidth: 0,
   },
   title: {
     fontSize: 18,
@@ -69,6 +70,8 @@ const styles = StyleSheet.create({
   },
   rightSlot: {
     minWidth: 36,
+    maxWidth: '48%',
     alignItems: 'flex-end',
+    flexShrink: 0,
   },
 });
